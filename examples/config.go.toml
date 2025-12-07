@@ -1,0 +1,75 @@
+# Example devpipe configuration for Go projects
+
+[defaults]
+outputRoot = ".devpipe"
+uiMode = "full"
+
+[task_defaults]
+enabled = true
+workdir = "."
+
+# Phase 1: Format and Lint
+[tasks.phase-quality]
+
+[tasks.gofmt]
+name = "Go Format"
+desc = "Check Go code formatting"
+command = "gofmt -l ."
+type = "check"
+fixType = "auto"
+fixCommand = "gofmt -w ."
+
+[tasks.goimports]
+name = "Go Imports"
+desc = "Check import organization"
+command = "goimports -l ."
+type = "check"
+fixType = "auto"
+fixCommand = "goimports -w ."
+
+[tasks.golint]
+name = "Go Lint"
+desc = "Run golangci-lint"
+command = "golangci-lint run --timeout=5m"
+type = "check"
+
+# Phase 2: Security
+[tasks.phase-security]
+
+[tasks.gosec]
+name = "Go Security"
+desc = "Run gosec security scanner"
+command = "gosec -fmt=sarif -out=gosec-results.sarif ./..."
+type = "check"
+metricsFormat = "sarif"
+metricsPath = "gosec-results.sarif"
+
+[tasks.govulncheck]
+name = "Vulnerability Check"
+desc = "Check for known vulnerabilities"
+command = "govulncheck ./..."
+type = "check"
+
+# Phase 3: Build
+[tasks.phase-build]
+
+[tasks.build]
+name = "Go Build"
+desc = "Build the Go application"
+command = "go build -v ./..."
+type = "build"
+
+# Phase 4: Tests
+[tasks.phase-test]
+
+[tasks.test]
+name = "Go Tests"
+desc = "Run Go tests with coverage"
+command = "go test -v -race -coverprofile=coverage.out -covermode=atomic ./..."
+type = "test"
+
+[tasks.test-short]
+name = "Quick Tests"
+desc = "Run short tests only"
+command = "go test -v -short ./..."
+type = "test"

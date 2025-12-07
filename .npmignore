@@ -1,0 +1,10 @@
+src/
+examples/
+*.md
+!README.md
+tsconfig.json
+.gitignore
+.DS_Store
+*.log
+node_modules/
+.devpipe/

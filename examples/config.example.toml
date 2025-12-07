@@ -1,0 +1,96 @@
+# Example devpipe configuration
+# This is a sample config.toml that demonstrates various features
+
+[defaults]
+outputRoot = ".devpipe"
+fastThreshold = 300  # Tasks taking longer than 300ms are considered "slow"
+uiMode = "full"
+animationRefreshMs = 500
+animatedGroupBy = "phase"
+
+[defaults.git]
+mode = "staged_unstaged"  # Run on staged and unstaged changes
+# mode = "ref"            # Or run on changes since a ref
+# ref = "origin/main"     # Git reference to compare against
+
+[task_defaults]
+enabled = true
+workdir = "."
+fixType = "helper"  # Show fix commands but don't auto-fix
+
+# Phase 1: Quality Checks (run in parallel)
+[tasks.phase-quality]
+
+[tasks.lint]
+name = "Lint Code"
+desc = "Run linter to check code quality"
+command = "npm run lint"
+type = "check"
+fixType = "auto"
+fixCommand = "npm run lint:fix"
+
+[tasks.format]
+name = "Format Check"
+desc = "Check code formatting"
+command = "npm run format:check"
+type = "check"
+fixType = "auto"
+fixCommand = "npm run format"
+
+[tasks.typecheck]
+name = "Type Check"
+desc = "Run TypeScript type checking"
+command = "npm run typecheck"
+type = "check"
+
+# Phase 2: Security (run in parallel)
+[tasks.phase-security]
+
+[tasks.audit]
+name = "Dependency Audit"
+desc = "Check for security vulnerabilities in dependencies"
+command = "npm audit --audit-level=moderate"
+type = "check"
+
+[tasks.security-scan]
+name = "Security Scan"
+desc = "Run security scanner"
+command = "npm run security:scan"
+type = "check"
+metricsFormat = "sarif"
+metricsPath = "security-results.sarif"
+
+# Phase 3: Build (sequential)
+[tasks.phase-build]
+
+[tasks.build]
+name = "Build"
+desc = "Build the project"
+command = "npm run build"
+type = "build"
+
+# Phase 4: Tests (run in parallel)
+[tasks.phase-test]
+
+[tasks.unit-tests]
+name = "Unit Tests"
+desc = "Run unit tests with coverage"
+command = "npm run test:unit"
+type = "test"
+metricsFormat = "junit"
+metricsPath = "test-results/junit.xml"
+
+[tasks.integration-tests]
+name = "Integration Tests"
+desc = "Run integration tests"
+command = "npm run test:integration"
+type = "test"
+metricsFormat = "junit"
+metricsPath = "test-results/integration-junit.xml"
+
+[tasks.e2e-tests]
+name = "E2E Tests"
+desc = "Run end-to-end tests"
+command = "npm run test:e2e"
+type = "test"
+enabled = false  # Disabled by default, enable with --only e2e-tests

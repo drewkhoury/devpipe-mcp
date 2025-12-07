@@ -1,0 +1,83 @@
+# Example devpipe configuration for Python projects
+
+[defaults]
+outputRoot = ".devpipe"
+uiMode = "full"
+
+[defaults.git]
+mode = "staged_unstaged"
+
+[task_defaults]
+enabled = true
+workdir = "."
+
+# Phase 1: Format and Lint
+[tasks.phase-quality]
+
+[tasks.black]
+name = "Black Format"
+desc = "Check Python code formatting with Black"
+command = "black --check ."
+type = "check"
+fixType = "auto"
+fixCommand = "black ."
+
+[tasks.isort]
+name = "Import Sort"
+desc = "Check import sorting"
+command = "isort --check-only ."
+type = "check"
+fixType = "auto"
+fixCommand = "isort ."
+
+[tasks.flake8]
+name = "Flake8 Lint"
+desc = "Run flake8 linter"
+command = "flake8 ."
+type = "check"
+
+[tasks.pylint]
+name = "Pylint"
+desc = "Run pylint"
+command = "pylint src/"
+type = "check"
+
+[tasks.mypy]
+name = "Type Check"
+desc = "Run mypy type checker"
+command = "mypy src/"
+type = "check"
+
+# Phase 2: Security
+[tasks.phase-security]
+
+[tasks.bandit]
+name = "Security Scan"
+desc = "Run bandit security scanner"
+command = "bandit -r src/ -f sarif -o bandit-results.sarif"
+type = "check"
+metricsFormat = "sarif"
+metricsPath = "bandit-results.sarif"
+
+[tasks.safety]
+name = "Dependency Check"
+desc = "Check for vulnerable dependencies"
+command = "safety check --json"
+type = "check"
+
+# Phase 3: Tests
+[tasks.phase-test]
+
+[tasks.pytest]
+name = "Pytest"
+desc = "Run pytest with coverage"
+command = "pytest --cov=src --cov-report=xml --junitxml=test-results.xml"
+type = "test"
+metricsFormat = "junit"
+metricsPath = "test-results.xml"
+
+[tasks.pytest-fast]
+name = "Fast Tests"
+desc = "Run tests without slow markers"
+command = "pytest -m 'not slow'"
+type = "test"
