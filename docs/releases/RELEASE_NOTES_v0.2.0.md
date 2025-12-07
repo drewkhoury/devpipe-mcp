@@ -10,8 +10,7 @@
 
 **Usage:**
 ```json
-Tool: list_tasks_verbose
-Arguments: {
+{
   "config": "./config.toml"
 }
 ```
@@ -24,8 +23,7 @@ Arguments: {
 
 **Usage:**
 ```json
-Tool: analyze_project
-Arguments: {
+{
   "projectPath": "/path/to/project"
 }
 ```
@@ -55,8 +53,7 @@ Arguments: {
 
 **Usage:**
 ```json
-Tool: generate_task
-Arguments: {
+{
   "technology": "Go",
   "taskType": "check-lint",
   "taskId": "golangci-lint"
@@ -86,8 +83,7 @@ fixCommand = "golangci-lint run --fix"
 
 **Usage:**
 ```json
-Tool: generate_ci_config
-Arguments: {
+{
   "config": "./config.toml",
   "platform": "github"
 }
