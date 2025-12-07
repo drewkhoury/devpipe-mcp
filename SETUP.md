@@ -30,7 +30,13 @@ Before you begin, ensure you have:
 
 Choose one of these methods:
 
-#### Method A: Install from source (recommended for now)
+#### Method A: Install from npm (recommended)
+
+```bash
+npm install -g devpipe-mcp
+```
+
+#### Method B: Install from source
 
 ```bash
 # Clone the repository
@@ -43,12 +49,6 @@ npm run build
 
 # Link globally (optional, for command-line access)
 npm link
-```
-
-#### Method B: Install from npm (when published)
-
-```bash
-npm install -g devpipe-mcp
 ```
 
 ### Step 2: Configure Your AI Assistant

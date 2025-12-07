@@ -30,7 +30,7 @@ This MCP server provides AI assistants with the ability to:
 
 ## Installation
 
-### Option 1: Install from npm (when published)
+### Option 1: Install from npm (recommended)
 
 ```bash
 npm install -g devpipe-mcp
