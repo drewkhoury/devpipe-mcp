@@ -5,6 +5,21 @@ All notable changes to the devpipe MCP server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **DEVPIPE_CWD environment variable support** - MCP server now respects `DEVPIPE_CWD` environment variable to locate config files in user's project directory instead of MCP server's installation directory
+- New documentation file `docs/DEVPIPE_CWD.md` with comprehensive guide on using the environment variable
+- New documentation file `docs/FIX_SUMMARY.md` documenting the config path fix
+
+### Changed
+- **Improved error messages** - Resource handler now shows where it's searching for config files and provides actionable guidance when config.toml is not found
+- **Updated all configuration examples** in README.md and SETUP.md to include DEVPIPE_CWD environment variable
+- **Enhanced troubleshooting section** in SETUP.md with DEVPIPE_CWD configuration as the primary solution
+
+### Fixed
+- **Config file not found error** - Fixed issue where MCP server couldn't find config.toml files because it was searching from its own installation directory instead of the user's project directory
+
 ## [0.1.0] - 2024-12-05
 
 ### Added

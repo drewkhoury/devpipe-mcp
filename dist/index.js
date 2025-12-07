@@ -7,7 +7,7 @@
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema, InitializeRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
 import { checkDevpipeInstalled, findConfigFile, parseConfig, getOutputDir, getLastRunDir, readSummary, readRunMetadata, readTaskLog, readPipelineLog, parseJUnitMetrics, parseSARIFMetrics, buildDevpipeCommand, executeDevpipe, listTasksFromConfig, listTasksVerbose, analyzeProject, generateTaskConfig, createConfig, generateCIConfig, } from './utils.js';
 // Create MCP server
 const server = new Server({
@@ -19,6 +19,53 @@ const server = new Server({
         resources: {},
         prompts: {},
     },
+});
+/**
+ * Handle initialization request
+ * Log raw payload to check for workspace-related parameters
+ */
+server.setRequestHandler(InitializeRequestSchema, async (request) => {
+    const logData = {
+        timestamp: new Date().toISOString(),
+        fullRequest: request,
+        requestKeys: Object.keys(request),
+        paramsKeys: Object.keys(request.params || {}),
+        workspaceParams: {
+            roots: request.params?.roots,
+            workspaceFolders: request.params?.workspaceFolders,
+            rootUri: request.params?.rootUri,
+            rootPath: request.params?.rootPath,
+            processId: request.params?.processId,
+            clientInfo: request.params?.clientInfo,
+        },
+    };
+    // Log to stderr
+    console.error('=== MCP Initialize Request ===');
+    console.error(JSON.stringify(logData, null, 2));
+    console.error('================================\n');
+    // Also write to a file for easy inspection
+    try {
+        const { writeFile } = await import('fs/promises');
+        const logPath = '/tmp/devpipe-mcp-init.json';
+        await writeFile(logPath, JSON.stringify(logData, null, 2));
+        console.error(`Initialization data written to: ${logPath}\n`);
+    }
+    catch (err) {
+        console.error('Failed to write log file:', err);
+    }
+    // Return default initialization response
+    return {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+            tools: {},
+            resources: {},
+            prompts: {},
+        },
+        serverInfo: {
+            name: 'devpipe-mcp',
+            version: '0.2.1',
+        },
+    };
 });
 /**
  * Tool: list_tasks
@@ -281,6 +328,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    // Debug: Log what we receive from the client
+    if (process.env.DEBUG_MCP) {
+        console.error('=== MCP Request Debug ===');
+        console.error('Request keys:', Object.keys(request));
+        console.error('Request.params keys:', Object.keys(request.params || {}));
+        console.error('Full request:', JSON.stringify(request, null, 2));
+        console.error('========================');
+    }
     try {
         switch (name) {
             case 'check_devpipe': {
@@ -361,6 +416,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 };
             }
             case 'get_last_run': {
+                if (process.env.DEBUG_MCP) {
+                    console.error('=== get_last_run Debug ===');
+                    console.error('args?.config:', args?.config);
+                    console.error('Will use findConfigFile:', !args?.config);
+                    console.error('========================');
+                }
                 const configPath = args?.config || await findConfigFile();
                 if (!configPath) {
                     throw new Error('No config.toml file found');
@@ -620,7 +681,8 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     try {
         const configPath = await findConfigFile();
         if (!configPath) {
-            throw new Error('No config.toml file found');
+            throw new Error(`No config.toml file found in ${process.cwd()} or parent directories.\n` +
+                `Tip: Specify the project path in your prompt, e.g., "Analyze /path/to/your/project"`);
         }
         switch (uri) {
             case 'devpipe://config': {

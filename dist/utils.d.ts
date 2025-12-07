@@ -12,6 +12,7 @@ export declare function checkDevpipeInstalled(): Promise<{
 }>;
 /**
  * Find config.toml file in current directory or parent directories
+ * Starts from provided directory or process working directory
  */
 export declare function findConfigFile(startDir?: string): Promise<string | null>;
 /**

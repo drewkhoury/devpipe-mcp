@@ -28,9 +28,11 @@ export async function checkDevpipeInstalled(): Promise<{ installed: boolean; ver
 
 /**
  * Find config.toml file in current directory or parent directories
+ * Starts from provided directory or process working directory
  */
-export async function findConfigFile(startDir: string = process.cwd()): Promise<string | null> {
-  let currentDir = startDir;
+export async function findConfigFile(startDir?: string): Promise<string | null> {
+  const searchDir = startDir || process.cwd();
+  let currentDir = searchDir;
   const root = '/';
 
   while (currentDir !== root) {

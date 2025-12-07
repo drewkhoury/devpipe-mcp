@@ -67,7 +67,10 @@ npm link
      "mcpServers": {
        "devpipe": {
          "command": "node",
-         "args": ["/path/to/devpipe-mcp/dist/index.js"]
+         "args": ["/path/to/devpipe-mcp/dist/index.js"],
+         "env": {
+           "DEVPIPE_CWD": "/path/to/your/project"
+         }
        }
      }
    }
@@ -78,11 +81,16 @@ npm link
    {
      "mcpServers": {
        "devpipe": {
-         "command": "devpipe-mcp"
+         "command": "devpipe-mcp",
+         "env": {
+           "DEVPIPE_CWD": "/path/to/your/project"
+         }
        }
      }
    }
    ```
+   
+   **Note:** The `DEVPIPE_CWD` environment variable is optional but recommended. It tells the MCP server where to look for your `config.toml` file. Without it, the server will search from its own installation directory.
 
 3. **Restart Windsurf** to load the new MCP server
 
@@ -101,7 +109,10 @@ npm link
      "mcpServers": {
        "devpipe": {
          "command": "node",
-         "args": ["/path/to/devpipe-mcp/dist/index.js"]
+         "args": ["/path/to/devpipe-mcp/dist/index.js"],
+         "env": {
+           "DEVPIPE_CWD": "/path/to/your/project"
+         }
        }
      }
    }
@@ -112,11 +123,16 @@ npm link
    {
      "mcpServers": {
        "devpipe": {
-         "command": "devpipe-mcp"
+         "command": "devpipe-mcp",
+         "env": {
+           "DEVPIPE_CWD": "/path/to/your/project"
+         }
        }
      }
    }
    ```
+   
+   **Note:** The `DEVPIPE_CWD` environment variable is optional but recommended. It tells the MCP server where to look for your `config.toml` file.
 
 3. **Restart Claude Desktop**
 
@@ -195,12 +211,30 @@ If the MCP server reports "devpipe not found":
 
 If you get "No config.toml file found":
 
-1. **Navigate to a project** with a `config.toml` file
-2. **Create a config file** using examples:
+1. **Set the DEVPIPE_CWD environment variable** in your MCP configuration (recommended):
+   ```json
+   {
+     "mcpServers": {
+       "devpipe": {
+         "command": "node",
+         "args": ["/path/to/devpipe-mcp/dist/index.js"],
+         "env": {
+           "DEVPIPE_CWD": "/path/to/your/project"
+         }
+       }
+     }
+   }
+   ```
+   Then restart your AI assistant.
+
+2. **Navigate to a project** with a `config.toml` file
+
+3. **Create a config file** using examples:
    ```bash
    cp /path/to/devpipe-mcp/examples/config.example.toml ./config.toml
    ```
-3. **Specify the path explicitly** in your request:
+
+4. **Specify the path explicitly** in tool calls:
    ```
    "List tasks from /path/to/config.toml"
    ```

@@ -86,22 +86,33 @@ devpipe-mcp
 
 ## Usage
 
-Once configured, you can interact with devpipe through your AI assistant. Here are some example requests:
+Once configured, you can interact with devpipe through your AI assistant using **natural language**. The AI will automatically translate your requests into the appropriate tool calls.
+
+> 📖 **[Complete Prompting Guide](./docs/PROMPTING_GUIDE.md)** - Learn all the ways to effectively prompt the MCP server
+
+### 🎯 How to Prompt
+
+**The key is to specify which project you want to work with:**
+
+- **"this project"** or **"this repo"** - Uses your current workspace
+- **Project name** - e.g., "the devpipe project", "my go-app"
+- **Absolute path** - e.g., "/Users/you/projects/my-app"
 
 ### List Tasks
 
 ```
-"Show me all the tasks in my devpipe configuration"
-"What tasks are defined in config.toml?"
+"Show me all the tasks in this project"
+"What tasks are defined in /Users/you/projects/my-app/config.toml?"
+"List tasks from the devpipe project"
 ```
 
 ### Run Pipeline
 
 ```
-"Run the devpipe pipeline"
-"Run only the lint and test tasks"
-"Run devpipe with --fast and --fail-fast flags"
-"Execute devpipe in dry-run mode"
+"Run devpipe in this project"
+"Run the pipeline for /Users/you/projects/my-app"
+"Run only the lint and test tasks in this repo"
+"Execute devpipe in dry-run mode for the go-app project"
 ```
 
 ### Validate Configuration
@@ -139,9 +150,20 @@ Once configured, you can interact with devpipe through your AI assistant. Here a
 
 ```
 "Create a devpipe config for this project"
-"Analyze my project and suggest tasks"
-"What technologies did you detect in /path/to/project?"
+"Analyze the project at /Users/you/projects/new-app"
+"What technologies are in this repo?"
+"Generate a config for /path/to/project"
 ```
+
+### Working with Multiple Projects
+
+```
+"Analyze /Users/you/projects/project-a"
+"Run devpipe in /Users/you/projects/project-b"
+"Compare tasks between this project and /Users/you/projects/other-project"
+```
+
+**Pro Tip:** You don't need to configure anything special - just tell the AI which project you want to work with in your prompt!
 
 ### Generate CI/CD
 

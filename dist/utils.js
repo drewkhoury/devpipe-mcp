@@ -24,9 +24,11 @@ export async function checkDevpipeInstalled() {
 }
 /**
  * Find config.toml file in current directory or parent directories
+ * Starts from provided directory or process working directory
  */
-export async function findConfigFile(startDir = process.cwd()) {
-    let currentDir = startDir;
+export async function findConfigFile(startDir) {
+    const searchDir = startDir || process.cwd();
+    let currentDir = searchDir;
     const root = '/';
     while (currentDir !== root) {
         const configPath = join(currentDir, 'config.toml');
