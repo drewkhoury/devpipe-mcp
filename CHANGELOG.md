@@ -1,3 +1,10 @@
+## [0.2.5](https://github.com/drewkhoury/devpipe-mcp/compare/v0.2.4...v0.2.5) (2025-12-08)
+
+
+### Bug Fixes
+
+* remove registry-url to enable Trusted Publishing OIDC ([8286769](https://github.com/drewkhoury/devpipe-mcp/commit/8286769cd794666a6b519b74321fa29662e281b8))
+
 ## [0.2.4](https://github.com/drewkhoury/devpipe-mcp/compare/v0.2.3...v0.2.4) (2025-12-08)
 
 
