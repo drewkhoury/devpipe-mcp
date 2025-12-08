@@ -45,7 +45,8 @@
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "@modelcontextprotocol/sdk": "^0.5.0",
-    "minimatch": "^10.1.1"
+    "minimatch": "^10.1.1",
+    "zod": "^3.23.8" 
   },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
