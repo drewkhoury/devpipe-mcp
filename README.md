@@ -21,12 +21,12 @@ This MCP server provides AI assistants with the ability to:
 ## Prerequisites
 
 - **Node.js** 18 or higher
-- **devpipe** v0.0.8 or higher installed and accessible in PATH
+- **devpipe** v0.1.0 or higher installed and accessible in PATH
   ```bash
   brew install drewkhoury/tap/devpipe
   ```
   
-  **Note:** This MCP is optimized for devpipe v0.0.8+ which includes updated default values and improved documentation.
+  **Note:** This MCP is optimized for devpipe v0.1.0+ which includes the `--ignore-watch-paths` flag and other improvements.
 
 ## Installation
 
@@ -48,29 +48,19 @@ npm link
 
 ## Configuration
 
-### For Windsurf/Cascade
-
-Add to your Windsurf MCP settings file (usually `~/.windsurf/mcp.json` or similar):
-
-```json
-{
-  "mcpServers": {
-    "devpipe": {
-      "command": "devpipe-mcp"
-    }
-  }
-}
-```
-
-### For Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+Add to your MCP configuration file:
+- **Windsurf/Cascade**: `~/.codeium/windsurf/mcp_config.json`
+- **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "devpipe": {
-      "command": "devpipe-mcp"
+      "command": "npx",
+      "args": [
+        "-y",
+        "devpipe-mcp@latest"
+      ]
     }
   }
 }
@@ -210,6 +200,7 @@ Execute devpipe with specified flags.
 - `dashboard` (optional): Show dashboard view
 - `failFast` (optional): Stop on first failure
 - `fast` (optional): Skip slow tasks
+- `ignoreWatchPaths` (optional): Ignore watchPaths and run all tasks
 - `dryRun` (optional): Show what would run
 - `verbose` (optional): Verbose output
 - `noColor` (optional): Disable colors
@@ -219,7 +210,8 @@ Execute devpipe with specified flags.
 {
   "only": ["lint", "test"],
   "fast": true,
-  "failFast": true
+  "failFast": true,
+  "ignoreWatchPaths": true
 }
 ```
 
@@ -403,11 +395,33 @@ Create a complete config.toml file from scratch with auto-detected tasks.
 - Defaults section (outputRoot, fastThreshold=300s, animationRefreshMs=500ms, git settings)
 - Task defaults (enabled, workdir)
 - Auto-detected tasks organized by phase
-- Ready-to-use TOML configuration compatible with devpipe v0.0.8+
+- Ready-to-use TOML configuration compatible with devpipe v0.1.0+
 
 **Use Case:** Bootstrap a new project with devpipe configuration.
 
-**Note:** Generated configs use devpipe v0.0.8 defaults (fastThreshold=300s, not 5000ms).
+**Note:** Generated configs use devpipe v0.1.0 defaults (fastThreshold=300s, not 5000ms).
+
+### `get_pipeline_health`
+Calculate overall pipeline health score with trend analysis, failure rates, and performance metrics. Returns health score (0-100), issues, warnings, and recommendations.
+
+### `compare_runs`
+Compare two pipeline runs to identify changes in failures, performance, and metrics.
+
+**Parameters:**
+- `run1` (required): First run ID (e.g., `2024-12-07_20-00-00`) or `latest`
+- `run2` (required): Second run ID or `previous`
+
+**Returns:** New failures, fixed tasks, performance changes, and detailed task comparisons.
+
+### `predict_impact`
+Predict which tasks are likely to fail based on changed files and historical patterns.
+
+**Returns:** Risk scores per task, recommended tasks to run, and suggested devpipe command.
+
+**Risk scoring:**
+- WatchPaths matching (40 points)
+- Historical failure correlation (30 points)
+- Recent failure rate (30 points)
 
 ### `generate_ci_config`
 Generate CI/CD configuration file (GitHub Actions or GitLab CI) from devpipe config.
@@ -466,6 +480,29 @@ The server exposes these resources:
 - `devpipe://last-run` - Most recent run results
 - `devpipe://summary` - Aggregated pipeline summary
 - `devpipe://schema` - JSON Schema for config.toml validation (fetched from official devpipe repo)
+- `devpipe://template-dashboard` - HTML template for dashboard reports (fetched from devpipe source)
+- `devpipe://template-ide` - HTML template for IDE-optimized views (fetched from devpipe source)
+- `devpipe://releases-latest` - Latest devpipe release notes (from GitHub releases)
+- `devpipe://releases-all` - Complete release history (from GitHub releases)
+- `devpipe://readme` - Complete devpipe documentation (from GitHub)
+- `devpipe://docs-configuration` - Official configuration guide (from GitHub)
+- `devpipe://docs-examples` - Example config.toml with all options (from GitHub)
+- `devpipe://docs-cli-reference` - CLI commands and flags reference (from GitHub)
+- `devpipe://docs-config-validation` - Configuration validation rules (from GitHub)
+- `devpipe://docs-features` - Complete features guide (from GitHub)
+- `devpipe://docs-project-root` - Project root configuration (from GitHub)
+- `devpipe://docs-safety-checks` - Safety checks documentation (from GitHub)
+- `devpipe://version-info` - Installed devpipe version and capabilities (from local binary)
+- `devpipe://available-commands` - All CLI commands and flags (from local binary)
+- `devpipe://git-status` - Current git repository status (from local git)
+- `devpipe://changed-files` - Files changed based on git mode (from local git)
+- `devpipe://task-history` - Historical task performance across all runs (from local runs)
+- `devpipe://metrics-summary` - Aggregated test and security metrics (from local runs)
+- `devpipe://watchpaths-analysis` - Analyze which tasks will run based on watchPaths (from local config + git)
+- `devpipe://recent-failures` - Recent task failures with error details and patterns (from local runs)
+- `devpipe://flakiness-report` - Flaky task detection with pass/fail patterns (from local runs)
+- `devpipe://performance-regressions` - Tasks that have gotten slower over time (from local runs)
+- `devpipe://change-correlation` - Correlate failures with recent commits and file changes (from local git + runs)
 
 ## MCP Prompts
 
@@ -492,6 +529,9 @@ Help create a new task for a technology.
 
 ### `security-review`
 Review SARIF security findings and provide recommendations.
+
+### `configure-metrics`
+Help configure JUnit, SARIF, or artifact metrics for a task. Provides guidance on proper metricsFormat and metricsPath configuration.
 
 ## Examples
 

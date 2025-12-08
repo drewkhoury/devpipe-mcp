@@ -18,6 +18,7 @@ import {
   GetPromptRequestSchema,
   InitializeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { dirname } from 'path';
 
 import {
   checkDevpipeInstalled,
@@ -40,6 +41,19 @@ import {
   generatePhaseHeader,
   createConfig,
   generateCIConfig,
+  extractGoTemplate,
+  getGitStatus,
+  getChangedFiles,
+  getTaskHistory,
+  getMetricsSummary,
+  getWatchPathsAnalysis,
+  getRecentFailures,
+  detectFlakyTasks,
+  detectPerformanceRegressions,
+  analyzeChangeCorrelation,
+  getPipelineHealth,
+  compareRuns,
+  predictImpact,
 } from './utils.js';
 
 import type { RunPipelineArgs } from './types.js';
@@ -48,7 +62,7 @@ import type { RunPipelineArgs } from './types.js';
 const server = new Server(
   {
     name: 'devpipe-mcp',
-    version: '0.2.1',
+    version: '0.2.2',
   },
   {
     capabilities: {
@@ -104,7 +118,7 @@ server.setRequestHandler(InitializeRequestSchema, async (request: any) => {
     },
     serverInfo: {
       name: 'devpipe-mcp',
-      version: '0.2.1',
+      version: '0.2.2',
     },
   };
 });
@@ -174,6 +188,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             fast: {
               type: 'boolean',
               description: 'Skip tasks that take longer than fastThreshold',
+            },
+            ignoreWatchPaths: {
+              type: 'boolean',
+              description: 'Ignore watchPaths and run all tasks regardless of git changes',
             },
             dryRun: {
               type: 'boolean',
@@ -320,6 +338,54 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['technology', 'taskType'],
+        },
+      },
+      {
+        name: 'get_pipeline_health',
+        description: 'Calculate overall pipeline health score with trend analysis, failure rates, and performance metrics.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            config: {
+              type: 'string',
+              description: 'Path to config.toml file',
+            },
+          },
+        },
+      },
+      {
+        name: 'compare_runs',
+        description: 'Compare two pipeline runs to identify changes in failures, performance, and metrics.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            config: {
+              type: 'string',
+              description: 'Path to config.toml file',
+            },
+            run1: {
+              type: 'string',
+              description: 'First run ID (e.g., 2024-12-07_20-00-00) or "latest"',
+            },
+            run2: {
+              type: 'string',
+              description: 'Second run ID to compare against (e.g., 2024-12-07_22-00-00) or "previous"',
+            },
+          },
+          required: ['run1', 'run2'],
+        },
+      },
+      {
+        name: 'predict_impact',
+        description: 'Predict which tasks are likely to fail based on changed files and historical patterns.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            config: {
+              type: 'string',
+              description: 'Path to config.toml file',
+            },
+          },
         },
       },
       {
@@ -660,6 +726,70 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         };
       }
 
+      case 'get_pipeline_health': {
+        const configPath = args?.config || await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const health = await getPipelineHealth(configPath, config);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(health, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'compare_runs': {
+        const configPath = args?.config || await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const run1 = args?.run1 as string;
+        const run2 = args?.run2 as string;
+        
+        if (!run1 || !run2) {
+          throw new Error('run1 and run2 are required');
+        }
+        
+        const config = await parseConfig(configPath);
+        const comparison = await compareRuns(configPath, config, run1, run2);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(comparison, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'predict_impact': {
+        const configPath = args?.config || await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const prediction = await predictImpact(configPath, config);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(prediction, null, 2),
+            },
+          ],
+        };
+      }
+
       case 'generate_ci_config': {
         const configPath = args?.config || await findConfigFile();
         if (!configPath) {
@@ -756,6 +886,144 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
         uri: 'devpipe://schema',
         name: 'Configuration schema',
         description: 'JSON Schema for devpipe config.toml validation',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://template-dashboard',
+        name: 'Dashboard HTML template',
+        description: 'HTML template used for generating dashboard reports',
+        mimeType: 'text/html',
+      },
+      {
+        uri: 'devpipe://template-ide',
+        name: 'IDE HTML template',
+        description: 'HTML template used for generating IDE-optimized views',
+        mimeType: 'text/html',
+      },
+      {
+        uri: 'devpipe://releases-latest',
+        name: 'Latest devpipe release',
+        description: 'Release notes for the latest devpipe version',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://releases-all',
+        name: 'All devpipe releases',
+        description: 'Complete release history with notes',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://readme',
+        name: 'devpipe README',
+        description: 'Complete devpipe documentation from GitHub',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://docs-configuration',
+        name: 'Configuration documentation',
+        description: 'Official devpipe configuration guide',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://docs-examples',
+        name: 'Example configuration',
+        description: 'Official example config.toml with all options',
+        mimeType: 'text/plain',
+      },
+      {
+        uri: 'devpipe://docs-cli-reference',
+        name: 'CLI reference documentation',
+        description: 'Complete CLI commands and flags reference',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://docs-config-validation',
+        name: 'Config validation documentation',
+        description: 'Configuration validation rules and requirements',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://docs-features',
+        name: 'Features documentation',
+        description: 'Complete devpipe features guide',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://docs-project-root',
+        name: 'Project root documentation',
+        description: 'Project root configuration and path resolution',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://docs-safety-checks',
+        name: 'Safety checks documentation',
+        description: 'Safety checks and validation mechanisms',
+        mimeType: 'text/markdown',
+      },
+      {
+        uri: 'devpipe://version-info',
+        name: 'Installed devpipe version',
+        description: 'Version and capabilities of locally installed devpipe',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://available-commands',
+        name: 'Available devpipe commands',
+        description: 'All CLI commands and flags from devpipe help',
+        mimeType: 'text/plain',
+      },
+      {
+        uri: 'devpipe://git-status',
+        name: 'Git repository status',
+        description: 'Current git state including branch, changes, and staged files',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://changed-files',
+        name: 'Changed files list',
+        description: 'Files that have changed based on git mode (staged, unstaged, or since ref)',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://task-history',
+        name: 'Task execution history',
+        description: 'Historical performance and results for all tasks across runs',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://metrics-summary',
+        name: 'Aggregated metrics summary',
+        description: 'Aggregated test results and security findings across all runs',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://watchpaths-analysis',
+        name: 'WatchPaths analysis',
+        description: 'Analyze which tasks will run based on changed files and watchPaths configuration',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://recent-failures',
+        name: 'Recent task failures',
+        description: 'Failed tasks from recent runs with error details and failure patterns',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://flakiness-report',
+        name: 'Flaky task detection',
+        description: 'Tasks with inconsistent pass/fail results indicating flakiness',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://performance-regressions',
+        name: 'Performance regression detection',
+        description: 'Tasks that have gotten significantly slower over time',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'devpipe://change-correlation',
+        name: 'Change correlation analysis',
+        description: 'Correlate task failures with recent file changes and commits',
         mimeType: 'application/json',
       },
     ],
@@ -869,6 +1137,523 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request: any) => {
         };
       }
 
+      case 'devpipe://template-dashboard': {
+        // Fetch the dashboard template from GitHub
+        const templateUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/internal/dashboard/html.go';
+        const response = await fetch(templateUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch dashboard template: ${response.statusText}`);
+        }
+        
+        const sourceCode = await response.text();
+        const template = extractGoTemplate(sourceCode, 'dashboardTemplate');
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/html',
+              text: template,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://template-ide': {
+        // Fetch the IDE template from GitHub
+        const templateUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/internal/dashboard/ide.go';
+        const response = await fetch(templateUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch IDE template: ${response.statusText}`);
+        }
+        
+        const sourceCode = await response.text();
+        const template = extractGoTemplate(sourceCode, 'ideTemplate');
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/html',
+              text: template,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://releases-latest': {
+        // Fetch the latest release from GitHub API
+        const releasesUrl = 'https://api.github.com/repos/drewkhoury/devpipe/releases/latest';
+        const response = await fetch(releasesUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch latest release: ${response.statusText}`);
+        }
+        
+        const release: any = await response.json();
+        const markdown = `# ${release.name || release.tag_name}\n\n**Released:** ${release.published_at}\n**Tag:** ${release.tag_name}\n\n${release.body || 'No release notes available.'}`;
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: markdown,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://releases-all': {
+        // Fetch all releases from GitHub API
+        const releasesUrl = 'https://api.github.com/repos/drewkhoury/devpipe/releases';
+        const response = await fetch(releasesUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch releases: ${response.statusText}`);
+        }
+        
+        const releases = await response.json() as any[];
+        
+        // Format releases for easy consumption
+        const formattedReleases = releases.map((r: any) => ({
+          version: r.tag_name,
+          name: r.name,
+          published: r.published_at,
+          prerelease: r.prerelease,
+          draft: r.draft,
+          body: r.body,
+          url: r.html_url,
+        }));
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(formattedReleases, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://readme': {
+        // Fetch the README from GitHub
+        const readmeUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/README.md';
+        const response = await fetch(readmeUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch README: ${response.statusText}`);
+        }
+        
+        const readme = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: readme,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://docs-configuration': {
+        // Fetch the configuration documentation from GitHub
+        const docsUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/docs/configuration.md';
+        const response = await fetch(docsUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch configuration docs: ${response.statusText}`);
+        }
+        
+        const docs = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: docs,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://docs-examples': {
+        // Fetch the example config from GitHub
+        const exampleUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/config.example.toml';
+        const response = await fetch(exampleUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch example config: ${response.statusText}`);
+        }
+        
+        const example = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/plain',
+              text: example,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://docs-cli-reference': {
+        // Fetch CLI reference documentation from GitHub
+        const docsUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/docs/cli-reference.md';
+        const response = await fetch(docsUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch CLI reference docs: ${response.statusText}`);
+        }
+        
+        const docs = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: docs,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://docs-config-validation': {
+        // Fetch config validation documentation from GitHub
+        const docsUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/docs/config-validation.md';
+        const response = await fetch(docsUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch config validation docs: ${response.statusText}`);
+        }
+        
+        const docs = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: docs,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://docs-features': {
+        // Fetch features documentation from GitHub
+        const docsUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/docs/features.md';
+        const response = await fetch(docsUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch features docs: ${response.statusText}`);
+        }
+        
+        const docs = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: docs,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://docs-project-root': {
+        // Fetch project root documentation from GitHub
+        const docsUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/docs/project-root.md';
+        const response = await fetch(docsUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch project root docs: ${response.statusText}`);
+        }
+        
+        const docs = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: docs,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://docs-safety-checks': {
+        // Fetch safety checks documentation from GitHub
+        const docsUrl = 'https://raw.githubusercontent.com/drewkhoury/devpipe/refs/heads/main/docs/safety-checks.md';
+        const response = await fetch(docsUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch safety checks docs: ${response.statusText}`);
+        }
+        
+        const docs = await response.text();
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/markdown',
+              text: docs,
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://version-info': {
+        // Get version info from locally installed devpipe
+        const versionCheck = await checkDevpipeInstalled();
+        
+        if (!versionCheck.installed) {
+          throw new Error('devpipe is not installed. Install it with: brew install drewkhoury/tap/devpipe');
+        }
+        
+        // Parse version string to extract details
+        const versionMatch = versionCheck.version?.match(/devpipe version (\S+)/);
+        const version = versionMatch ? versionMatch[1] : versionCheck.version;
+        
+        const versionInfo = {
+          installed: true,
+          version: version,
+          rawOutput: versionCheck.version,
+          capabilities: {
+            ignoreWatchPaths: version ? version >= '0.1.0' : false,
+            // Add more capability checks as devpipe evolves
+          },
+        };
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(versionInfo, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://available-commands': {
+        // Get help output from devpipe
+        const devpipeCheck = await checkDevpipeInstalled();
+        if (!devpipeCheck.installed) {
+          throw new Error('devpipe is not installed. Install it with: brew install drewkhoury/tap/devpipe');
+        }
+
+        const helpResult = await executeDevpipe('devpipe help');
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/plain',
+              text: helpResult.stdout || helpResult.stderr || 'No help output available',
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://git-status': {
+        // Get git status from current directory or config directory
+        const configPath = await findConfigFile();
+        const cwd = configPath ? dirname(configPath) : process.cwd();
+        
+        const gitStatus = await getGitStatus(cwd);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(gitStatus, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://changed-files': {
+        // Get changed files based on git mode from config
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const changedFiles = await getChangedFiles(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(changedFiles, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://task-history': {
+        // Get task history across all runs
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const taskHistory = await getTaskHistory(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(taskHistory, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://metrics-summary': {
+        // Get aggregated metrics summary across all runs
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const metricsSummary = await getMetricsSummary(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(metricsSummary, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://watchpaths-analysis': {
+        // Analyze which tasks will run based on watchPaths
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const watchPathsAnalysis = await getWatchPathsAnalysis(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(watchPathsAnalysis, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://recent-failures': {
+        // Get recent task failures with error details
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const recentFailures = await getRecentFailures(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(recentFailures, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://flakiness-report': {
+        // Detect flaky tasks
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const flakinessReport = await detectFlakyTasks(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(flakinessReport, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://performance-regressions': {
+        // Detect performance regressions
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const performanceRegressions = await detectPerformanceRegressions(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(performanceRegressions, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'devpipe://change-correlation': {
+        // Analyze change correlation
+        const configPath = await findConfigFile();
+        if (!configPath) {
+          throw new Error('No config.toml file found');
+        }
+        
+        const config = await parseConfig(configPath);
+        const changeCorrelation = await analyzeChangeCorrelation(configPath, config);
+        
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(changeCorrelation, null, 2),
+            },
+          ],
+        };
+      }
+
       default:
         throw new Error(`Unknown resource: ${uri}`);
     }
@@ -921,6 +1706,22 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => {
       {
         name: 'security-review',
         description: 'Review SARIF security findings and provide recommendations',
+      },
+      {
+        name: 'configure-metrics',
+        description: 'Help configure JUnit, SARIF, or artifact metrics for a task',
+        arguments: [
+          {
+            name: 'taskType',
+            description: 'Type of task (test, security, lint, build)',
+            required: true,
+          },
+          {
+            name: 'tool',
+            description: 'Tool name (e.g., jest, gosec, eslint, go build)',
+            required: true,
+          },
+        ],
       },
     ],
   };
@@ -1121,6 +1922,76 @@ Please provide:
 3. Recommendations for fixing each issue
 4. Suggested additional security checks to add
 5. Best practices for the technologies in use`,
+              },
+            },
+          ],
+        };
+      }
+
+      case 'configure-metrics': {
+        // NOTE: Future devpipe versions will rename these fields:
+        // metricsFormat -> outputType
+        // metricsPath -> outputPath
+        // Update this prompt when that change is released
+        
+        if (!args?.taskType || !args?.tool) {
+          throw new Error('taskType and tool arguments are required');
+        }
+
+        const taskType = args.taskType as string;
+        const tool = args.tool as string;
+
+        return {
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `Help configure metrics for ${tool} (${taskType} task):
+
+IMPORTANT: devpipe uses specific metrics configuration:
+
+## Metrics Formats
+
+1. **junit** - For test results (XML format)
+   - Use for: test runners (jest, pytest, go test, etc.)
+   - Tool must output JUnit XML format
+   
+2. **sarif** - For security/lint findings (JSON format)
+   - Use for: security scanners (gosec, semgrep), linters (eslint)
+   - Tool must output SARIF JSON format
+   
+3. **artifact** - For build artifacts
+   - Use for: compiled binaries, packages, archives
+   - Stores the artifact file itself
+
+## Configuration Pattern
+
+\`\`\`toml
+[tasks.${tool.toLowerCase().replace(/[^a-z0-9]/g, '-')}]
+command = "..."
+type = "${taskType}"
+metricsFormat = "junit|sarif|artifact"  # Choose one
+metricsPath = "results/${tool}.xml"     # Path relative to workdir
+\`\`\`
+
+## Key Points
+
+- **metricsPath** is a folder/file in your project (e.g., results/, logs/, artifacts/)
+- Should be in .gitignore
+- NOT part of .devpipe/runs/ (devpipe manages that internally)
+- Path is relative to task's workdir
+
+## Tool-Specific Guidance for ${tool}
+
+Please provide:
+1. The correct command to run ${tool} with proper output format
+2. Recommended metricsFormat (junit, sarif, or artifact)
+3. Suggested metricsPath location
+4. Any tool-specific flags needed for the format
+5. Complete task configuration example
+
+Reference: devpipe://docs-configuration and devpipe://docs-examples`,
               },
             },
           ],

@@ -35,6 +35,7 @@ export interface DevpipeTask {
   fixCommand?: string;
   metricsFormat?: 'junit' | 'sarif' | 'artifact';
   metricsPath?: string;
+  watchPaths?: string[];
 }
 
 export interface RunMetadata {
@@ -124,6 +125,7 @@ export interface RunPipelineArgs {
   dashboard?: boolean;
   failFast?: boolean;
   fast?: boolean;
+  ignoreWatchPaths?: boolean;
   dryRun?: boolean;
   verbose?: boolean;
   noColor?: boolean;

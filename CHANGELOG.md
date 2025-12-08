@@ -7,12 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2024-12-07
+
 ### Added
+- **`ignoreWatchPaths` flag support** - Added support for devpipe v0.1.0's `--ignore-watch-paths` flag to run all tasks regardless of git changes
+- **Template resources** - Added `devpipe://template-dashboard` and `devpipe://template-ide` resources that fetch HTML templates directly from devpipe GitHub source
+- **Release resources** - Added `devpipe://releases-latest` and `devpipe://releases-all` resources that fetch release notes from GitHub releases API
+- **Documentation resources** - Added `devpipe://readme`, `devpipe://docs-configuration`, `devpipe://docs-examples`, `devpipe://docs-cli-reference`, `devpipe://docs-config-validation`, `devpipe://docs-features`, `devpipe://docs-project-root`, and `devpipe://docs-safety-checks` resources that fetch complete documentation from GitHub
+- **Runtime resources** - Added `devpipe://version-info` and `devpipe://available-commands` resources that query the locally installed devpipe binary
+- **Git resources** - Added `devpipe://git-status` and `devpipe://changed-files` resources that provide git repository context
+- **Historical analysis resources** - Added `devpipe://task-history` and `devpipe://metrics-summary` resources that aggregate data across all pipeline runs
+- **WatchPaths analysis resource** - Added `devpipe://watchpaths-analysis` resource that explains which tasks will run based on changed files and watchPaths patterns
+- **Recent failures resource** - Added `devpipe://recent-failures` resource that shows failed tasks with error details, failure patterns, and identifies new vs pre-existing failures
+- **Flakiness detection resource** - Added `devpipe://flakiness-report` resource that identifies tasks with inconsistent pass/fail patterns
+- **Performance regression detection** - Added `devpipe://performance-regressions` resource that detects tasks getting slower over time
+- **Change correlation analysis** - Added `devpipe://change-correlation` resource that correlates task failures with recent commits and file changes
 - **DEVPIPE_CWD environment variable support** - MCP server now respects `DEVPIPE_CWD` environment variable to locate config files in user's project directory instead of MCP server's installation directory
 - New documentation file `docs/DEVPIPE_CWD.md` with comprehensive guide on using the environment variable
 - New documentation file `docs/FIX_SUMMARY.md` documenting the config path fix
+- New utility function `extractGoTemplate()` to parse Go template constants from source code
+- New prompt `configure-metrics` to guide users on proper JUnit, SARIF, and artifact metrics configuration
+- New tool `get_pipeline_health` to calculate overall pipeline health score with trend analysis and recommendations
+- New tool `compare_runs` to compare two pipeline runs and identify changes in failures, performance, and metrics
+- New tool `predict_impact` to predict which tasks are likely to fail based on changed files and historical patterns
 
 ### Changed
+- **Updated for devpipe v0.1.0 compatibility**
+  - Minimum required version is now v0.1.0
+  - Added `ignoreWatchPaths` parameter to `run_pipeline` tool
+  - Updated documentation to reflect v0.1.0 features
 - **Improved error messages** - Resource handler now shows where it's searching for config files and provides actionable guidance when config.toml is not found
 - **Updated all configuration examples** in README.md and SETUP.md to include DEVPIPE_CWD environment variable
 - **Enhanced troubleshooting section** in SETUP.md with DEVPIPE_CWD configuration as the primary solution

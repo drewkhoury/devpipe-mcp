@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import { readFile, access, readdir, stat } from 'fs/promises';
 import { join, dirname } from 'path';
 import * as TOML from '@iarna/toml';
+import { minimatch } from 'minimatch';
 import type { DevpipeConfig, SummaryData, RunMetadata } from './types.js';
 
 const execAsync = promisify(exec);
@@ -189,6 +190,7 @@ export function buildDevpipeCommand(args: {
   dashboard?: boolean;
   failFast?: boolean;
   fast?: boolean;
+  ignoreWatchPaths?: boolean;
   dryRun?: boolean;
   verbose?: boolean;
   noColor?: boolean;
@@ -208,6 +210,7 @@ export function buildDevpipeCommand(args: {
   if (args.dashboard) parts.push('--dashboard');
   if (args.failFast) parts.push('--fail-fast');
   if (args.fast) parts.push('--fast');
+  if (args.ignoreWatchPaths) parts.push('--ignore-watch-paths');
   if (args.dryRun) parts.push('--dry-run');
   if (args.verbose) parts.push('--verbose');
   if (args.noColor) parts.push('--no-color');
@@ -686,4 +689,1316 @@ devpipe:
   }
 
   return '';
+}
+
+/**
+ * Extract a Go template constant from source code
+ */
+export function extractGoTemplate(sourceCode: string, templateName: string): string {
+  // Look for pattern: const templateName = `...`
+  const pattern = new RegExp(`const\\s+${templateName}\\s*=\\s*\`([\\s\\S]*?)\`(?:\\s*\\/\\/|\\s*$|\\s*const)`, 'm');
+  const match = sourceCode.match(pattern);
+  
+  if (match && match[1]) {
+    return match[1];
+  }
+  
+  throw new Error(`Template constant '${templateName}' not found in source code`);
+}
+
+/**
+ * Get git status for the current repository
+ */
+export async function getGitStatus(cwd?: string): Promise<any> {
+  try {
+    // Get current branch
+    const branchResult = await execAsync('git rev-parse --abbrev-ref HEAD', { cwd: cwd || process.cwd() });
+    const branch = branchResult.stdout.trim();
+    
+    // Get porcelain status
+    const statusResult = await execAsync('git status --porcelain', { cwd: cwd || process.cwd() });
+    const statusLines = statusResult.stdout.trim().split('\n').filter(line => line);
+    
+    // Parse status
+    const staged: string[] = [];
+    const modified: string[] = [];
+    const untracked: string[] = [];
+    
+    statusLines.forEach(line => {
+      const status = line.substring(0, 2);
+      const file = line.substring(3);
+      
+      if (status[0] !== ' ' && status[0] !== '?') {
+        staged.push(file);
+      }
+      if (status[1] === 'M' || status[1] === 'D') {
+        modified.push(file);
+      }
+      if (status === '??') {
+        untracked.push(file);
+      }
+    });
+    
+    return {
+      branch,
+      staged,
+      modified,
+      untracked,
+      clean: statusLines.length === 0,
+    };
+  } catch (error) {
+    throw new Error(`Failed to get git status: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Get changed files based on git mode from config
+ */
+export async function getChangedFiles(configPath: string, config: DevpipeConfig): Promise<any> {
+  try {
+    const cwd = dirname(configPath);
+    const gitMode = config.defaults?.git?.mode || 'staged_unstaged';
+    const gitRef = config.defaults?.git?.ref || 'HEAD';
+    
+    let files: string[] = [];
+    let mode: string = gitMode;
+    
+    if (gitMode === 'staged') {
+      // Only staged files
+      const result = await execAsync('git diff --cached --name-only', { cwd });
+      files = result.stdout.trim().split('\n').filter(f => f);
+    } else if (gitMode === 'staged_unstaged') {
+      // Staged and unstaged files
+      const result = await execAsync('git diff HEAD --name-only', { cwd });
+      files = result.stdout.trim().split('\n').filter(f => f);
+    } else if (gitMode === 'ref') {
+      // Files changed since ref
+      const result = await execAsync(`git diff ${gitRef} --name-only`, { cwd });
+      files = result.stdout.trim().split('\n').filter(f => f);
+      mode = `ref:${gitRef}`;
+    }
+    
+    return {
+      mode,
+      ref: gitMode === 'ref' ? gitRef : undefined,
+      files,
+      count: files.length,
+    };
+  } catch (error) {
+    throw new Error(`Failed to get changed files: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Get aggregated metrics summary across all runs
+ */
+export async function getMetricsSummary(configPath: string, config: DevpipeConfig): Promise<any> {
+  try {
+    const outputDir = getOutputDir(configPath, config);
+    const runsDir = join(outputDir, 'runs');
+    
+    // Check if runs directory exists
+    try {
+      await access(runsDir);
+    } catch {
+      return { junit: null, sarif: null, totalRuns: 0 };
+    }
+    
+    // Get all run directories
+    const runDirs = await readdir(runsDir);
+    const junitSummary = {
+      totalTests: 0,
+      totalFailures: 0,
+      totalErrors: 0,
+      totalSkipped: 0,
+      runs: [] as any[],
+    };
+    const sarifSummary = {
+      totalFindings: 0,
+      errorCount: 0,
+      warningCount: 0,
+      noteCount: 0,
+      runs: [] as any[],
+    };
+    
+    for (const runDir of runDirs) {
+      const runPath = join(runsDir, runDir);
+      const metricsDir = join(runPath, 'metrics');
+      
+      try {
+        const metricsFiles = await readdir(metricsDir);
+        
+        // Process JUnit files
+        for (const file of metricsFiles) {
+          if (file.endsWith('.xml')) {
+            try {
+              const metrics = await parseJUnitMetrics(join(metricsDir, file));
+              junitSummary.totalTests += metrics.tests;
+              junitSummary.totalFailures += metrics.failures;
+              junitSummary.totalErrors += metrics.errors;
+              junitSummary.totalSkipped += metrics.skipped;
+              junitSummary.runs.push({
+                runId: runDir,
+                file,
+                tests: metrics.tests,
+                failures: metrics.failures,
+              });
+            } catch {
+              // Skip files that can't be parsed
+            }
+          }
+          
+          // Process SARIF files
+          if (file.endsWith('.sarif') || file.endsWith('.json')) {
+            try {
+              const metrics = await parseSARIFMetrics(join(metricsDir, file));
+              for (const run of metrics.runs) {
+                const findings = run.results.length;
+                sarifSummary.totalFindings += findings;
+                
+                for (const result of run.results) {
+                  if (result.level === 'error') sarifSummary.errorCount++;
+                  if (result.level === 'warning') sarifSummary.warningCount++;
+                  if (result.level === 'note') sarifSummary.noteCount++;
+                }
+                
+                sarifSummary.runs.push({
+                  runId: runDir,
+                  file,
+                  tool: run.tool.driver.name,
+                  findings,
+                });
+              }
+            } catch {
+              // Skip files that can't be parsed
+            }
+          }
+        }
+      } catch {
+        // Skip runs without metrics directory
+        continue;
+      }
+    }
+    
+    return {
+      junit: junitSummary.runs.length > 0 ? junitSummary : null,
+      sarif: sarifSummary.runs.length > 0 ? sarifSummary : null,
+      totalRuns: runDirs.length,
+    };
+  } catch (error) {
+    throw new Error(`Failed to get metrics summary: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Get task history across all runs
+ */
+export async function getTaskHistory(configPath: string, config: DevpipeConfig): Promise<any> {
+  try {
+    const outputDir = getOutputDir(configPath, config);
+    const runsDir = join(outputDir, 'runs');
+    
+    // Check if runs directory exists
+    try {
+      await access(runsDir);
+    } catch {
+      return { tasks: {}, totalRuns: 0 };
+    }
+    
+    // Get all run directories
+    const runDirs = await readdir(runsDir);
+    const taskHistory: Record<string, any> = {};
+    
+    for (const runDir of runDirs) {
+      const runPath = join(runsDir, runDir);
+      const runJsonPath = join(runPath, 'run.json');
+      
+      try {
+        const runData = JSON.parse(await readFile(runJsonPath, 'utf-8'));
+        
+        // Process each task in the run
+        if (runData.tasks) {
+          for (const task of runData.tasks) {
+            if (!taskHistory[task.id]) {
+              taskHistory[task.id] = {
+                id: task.id,
+                name: task.name,
+                runs: [],
+                totalRuns: 0,
+                successCount: 0,
+                failureCount: 0,
+                skipCount: 0,
+                avgDuration: 0,
+              };
+            }
+            
+            taskHistory[task.id].runs.push({
+              timestamp: runData.timestamp,
+              status: task.status,
+              duration: task.duration,
+              exitCode: task.exitCode,
+            });
+            
+            taskHistory[task.id].totalRuns++;
+            if (task.status === 'PASS') taskHistory[task.id].successCount++;
+            if (task.status === 'FAIL') taskHistory[task.id].failureCount++;
+            if (task.status === 'SKIPPED') taskHistory[task.id].skipCount++;
+          }
+        }
+      } catch {
+        // Skip runs that can't be read
+        continue;
+      }
+    }
+    
+    // Calculate averages
+    for (const taskId in taskHistory) {
+      const task = taskHistory[taskId];
+      const durations = task.runs.map((r: any) => r.duration).filter((d: number) => d > 0);
+      task.avgDuration = durations.length > 0 
+        ? Math.round(durations.reduce((a: number, b: number) => a + b, 0) / durations.length)
+        : 0;
+    }
+    
+    return {
+      tasks: taskHistory,
+      totalRuns: runDirs.length,
+    };
+  } catch (error) {
+    throw new Error(`Failed to get task history: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Get recent task failures with error details and patterns
+ */
+export async function getRecentFailures(configPath: string, config: DevpipeConfig, limit: number = 10): Promise<any> {
+  try {
+    const outputDir = getOutputDir(configPath, config);
+    const runsDir = join(outputDir, 'runs');
+    
+    // Check if runs directory exists
+    try {
+      await access(runsDir);
+    } catch {
+      return { failures: [], totalRuns: 0 };
+    }
+    
+    // Get all run directories sorted by timestamp (newest first)
+    const runDirs = await readdir(runsDir);
+    const sortedRuns = runDirs.sort().reverse();
+    
+    const failures: any[] = [];
+    const taskFailureHistory: Record<string, any> = {};
+    
+    // Process runs to find failures
+    for (const runDir of sortedRuns) {
+      const runPath = join(runsDir, runDir);
+      const runJsonPath = join(runPath, 'run.json');
+      
+      try {
+        const runData = JSON.parse(await readFile(runJsonPath, 'utf-8'));
+        
+        if (runData.tasks) {
+          for (const task of runData.tasks) {
+            // Track all task runs for pattern analysis
+            if (!taskFailureHistory[task.id]) {
+              taskFailureHistory[task.id] = {
+                runs: [],
+                firstFailure: null,
+                lastSuccess: null,
+              };
+            }
+            
+            taskFailureHistory[task.id].runs.push({
+              timestamp: runData.timestamp,
+              status: task.status,
+            });
+            
+            // Record failures
+            if (task.status === 'FAIL') {
+              if (!taskFailureHistory[task.id].firstFailure) {
+                taskFailureHistory[task.id].firstFailure = runData.timestamp;
+              }
+              
+              // Read task log for error details
+              let errorDetails = task.error || '';
+              try {
+                const logPath = join(runPath, 'logs', `${task.id}.log`);
+                const logContent = await readFile(logPath, 'utf-8');
+                // Get last 500 chars of log (usually contains the error)
+                errorDetails = logContent.slice(-500);
+              } catch {
+                // Log file might not exist
+              }
+              
+              failures.push({
+                taskId: task.id,
+                taskName: task.name,
+                timestamp: runData.timestamp,
+                runId: runDir,
+                exitCode: task.exitCode,
+                duration: task.duration,
+                errorSummary: errorDetails.split('\n').slice(-5).join('\n').trim(),
+              });
+            } else if (task.status === 'PASS') {
+              if (!taskFailureHistory[task.id].lastSuccess) {
+                taskFailureHistory[task.id].lastSuccess = runData.timestamp;
+              }
+            }
+          }
+        }
+      } catch {
+        // Skip runs that can't be read
+        continue;
+      }
+    }
+    
+    // Analyze patterns for each failed task
+    const failurePatterns: any[] = [];
+    const uniqueFailedTasks = new Set(failures.map(f => f.taskId));
+    
+    for (const taskId of uniqueFailedTasks) {
+      const history = taskFailureHistory[taskId];
+      if (!history) continue;
+      
+      // Count consecutive failures
+      let consecutiveFailures = 0;
+      for (const run of history.runs) {
+        if (run.status === 'FAIL') {
+          consecutiveFailures++;
+        } else {
+          break;
+        }
+      }
+      
+      // Determine if this is a new failure
+      const wasPassingBefore = history.lastSuccess !== null;
+      
+      failurePatterns.push({
+        taskId,
+        firstFailedAt: history.firstFailure,
+        lastPassedAt: history.lastSuccess,
+        consecutiveFailures,
+        isNewFailure: wasPassingBefore && consecutiveFailures > 0,
+        totalRuns: history.runs.length,
+      });
+    }
+    
+    // Return most recent failures (limited)
+    return {
+      failures: failures.slice(0, limit),
+      patterns: failurePatterns,
+      summary: {
+        totalFailures: failures.length,
+        uniqueFailedTasks: uniqueFailedTasks.size,
+        newFailures: failurePatterns.filter(p => p.isNewFailure).length,
+      },
+      totalRuns: sortedRuns.length,
+    };
+  } catch (error) {
+    throw new Error(`Failed to get recent failures: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Detect flaky tasks based on inconsistent pass/fail patterns
+ */
+export async function detectFlakyTasks(configPath: string, config: DevpipeConfig, minRuns: number = 5): Promise<any> {
+  try {
+    const outputDir = getOutputDir(configPath, config);
+    const runsDir = join(outputDir, 'runs');
+    
+    // Check if runs directory exists
+    try {
+      await access(runsDir);
+    } catch {
+      return { flakyTasks: [], totalTasks: 0 };
+    }
+    
+    // Get all run directories
+    const runDirs = await readdir(runsDir);
+    const sortedRuns = runDirs.sort().reverse(); // Newest first
+    
+    // Track task results
+    const taskResults: Record<string, any[]> = {};
+    
+    for (const runDir of sortedRuns) {
+      const runPath = join(runsDir, runDir);
+      const runJsonPath = join(runPath, 'run.json');
+      
+      try {
+        const runData = JSON.parse(await readFile(runJsonPath, 'utf-8'));
+        
+        if (runData.tasks) {
+          for (const task of runData.tasks) {
+            if (!taskResults[task.id]) {
+              taskResults[task.id] = [];
+            }
+            
+            taskResults[task.id].push({
+              timestamp: runData.timestamp,
+              status: task.status,
+              duration: task.duration,
+            });
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+    
+    // Analyze flakiness
+    const flakyTasks: any[] = [];
+    
+    for (const [taskId, results] of Object.entries(taskResults)) {
+      if (results.length < minRuns) continue;
+      
+      const passes = results.filter(r => r.status === 'PASS').length;
+      const failures = results.filter(r => r.status === 'FAIL').length;
+      const total = passes + failures;
+      
+      if (total === 0) continue;
+      
+      const passRate = passes / total;
+      const failRate = failures / total;
+      
+      // Detect flakiness: neither always passing nor always failing
+      const isFlaky = passRate > 0.1 && passRate < 0.9;
+      
+      if (isFlaky) {
+        // Check for alternating pattern
+        let alternations = 0;
+        for (let i = 1; i < results.length; i++) {
+          if (results[i].status !== results[i - 1].status) {
+            alternations++;
+          }
+        }
+        
+        const alternationRate = alternations / (results.length - 1);
+        
+        flakyTasks.push({
+          taskId,
+          totalRuns: results.length,
+          passes,
+          failures,
+          passRate: Math.round(passRate * 100) / 100,
+          failRate: Math.round(failRate * 100) / 100,
+          flakinessScore: Math.round((1 - Math.abs(passRate - 0.5) * 2) * 100) / 100,
+          alternationRate: Math.round(alternationRate * 100) / 100,
+          pattern: alternationRate > 0.5 ? 'alternating' : 'intermittent',
+          recentResults: results.slice(0, 10).map(r => r.status),
+          recommendation: passRate < 0.5 
+            ? 'Task fails more than it passes - investigate root cause'
+            : 'Task is unstable - consider adding retries or fixing race conditions',
+        });
+      }
+    }
+    
+    // Sort by flakiness score (most flaky first)
+    flakyTasks.sort((a, b) => b.flakinessScore - a.flakinessScore);
+    
+    return {
+      flakyTasks,
+      summary: {
+        totalTasks: Object.keys(taskResults).length,
+        flakyCount: flakyTasks.length,
+        healthScore: flakyTasks.length === 0 ? 100 : Math.max(0, 100 - (flakyTasks.length * 10)),
+      },
+      totalRuns: sortedRuns.length,
+    };
+  } catch (error) {
+    throw new Error(`Failed to detect flaky tasks: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Detect performance regressions in task execution times
+ */
+export async function detectPerformanceRegressions(configPath: string, config: DevpipeConfig, threshold: number = 0.3): Promise<any> {
+  try {
+    const outputDir = getOutputDir(configPath, config);
+    const runsDir = join(outputDir, 'runs');
+    
+    // Check if runs directory exists
+    try {
+      await access(runsDir);
+    } catch {
+      return { regressions: [], totalTasks: 0 };
+    }
+    
+    // Get all run directories
+    const runDirs = await readdir(runsDir);
+    const sortedRuns = runDirs.sort().reverse(); // Newest first
+    
+    // Track task durations over time
+    const taskDurations: Record<string, any[]> = {};
+    
+    for (const runDir of sortedRuns) {
+      const runPath = join(runsDir, runDir);
+      const runJsonPath = join(runPath, 'run.json');
+      
+      try {
+        const runData = JSON.parse(await readFile(runJsonPath, 'utf-8'));
+        
+        if (runData.tasks) {
+          for (const task of runData.tasks) {
+            if (task.status !== 'PASS') continue; // Only analyze successful runs
+            
+            if (!taskDurations[task.id]) {
+              taskDurations[task.id] = [];
+            }
+            
+            taskDurations[task.id].push({
+              timestamp: runData.timestamp,
+              duration: task.duration,
+            });
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+    
+    // Analyze regressions
+    const regressions: any[] = [];
+    
+    for (const [taskId, durations] of Object.entries(taskDurations)) {
+      if (durations.length < 5) continue; // Need at least 5 runs
+      
+      // Compare recent average (last 5 runs) vs baseline (runs 6-15)
+      const recentRuns = durations.slice(0, 5);
+      const baselineRuns = durations.slice(5, 15);
+      
+      if (baselineRuns.length === 0) continue;
+      
+      const recentAvg = recentRuns.reduce((sum, r) => sum + r.duration, 0) / recentRuns.length;
+      const baselineAvg = baselineRuns.reduce((sum, r) => sum + r.duration, 0) / baselineRuns.length;
+      
+      const percentChange = (recentAvg - baselineAvg) / baselineAvg;
+      
+      // Detect regression if recent average is significantly higher
+      if (percentChange > threshold) {
+        const trend = durations.slice(0, 10).map(d => d.duration);
+        const isIncreasing = trend[0] > trend[trend.length - 1];
+        
+        regressions.push({
+          taskId,
+          status: 'regression',
+          recentAvgDuration: Math.round(recentAvg),
+          baselineAvgDuration: Math.round(baselineAvg),
+          percentIncrease: Math.round(percentChange * 100),
+          absoluteIncrease: Math.round(recentAvg - baselineAvg),
+          trend: isIncreasing ? 'increasing' : 'stable',
+          recentDurations: recentRuns.map(r => r.duration),
+          detectedAt: recentRuns[0].timestamp,
+          severity: percentChange > 1.0 ? 'critical' : percentChange > 0.5 ? 'high' : 'medium',
+          recommendation: percentChange > 1.0
+            ? 'Task is 2x slower - immediate investigation needed'
+            : 'Task performance degrading - review recent changes',
+        });
+      }
+    }
+    
+    // Sort by severity and percent increase
+    regressions.sort((a, b) => b.percentIncrease - a.percentIncrease);
+    
+    return {
+      regressions,
+      summary: {
+        totalTasks: Object.keys(taskDurations).length,
+        regressedTasks: regressions.length,
+        criticalRegressions: regressions.filter(r => r.severity === 'critical').length,
+        avgPerformanceImpact: regressions.length > 0
+          ? Math.round(regressions.reduce((sum, r) => sum + r.percentIncrease, 0) / regressions.length)
+          : 0,
+      },
+      totalRuns: sortedRuns.length,
+    };
+  } catch (error) {
+    throw new Error(`Failed to detect performance regressions: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Correlate task failures with recent file changes
+ */
+export async function analyzeChangeCorrelation(configPath: string, config: DevpipeConfig): Promise<any> {
+  try {
+    const outputDir = getOutputDir(configPath, config);
+    const runsDir = join(outputDir, 'runs');
+    const cwd = dirname(configPath);
+    
+    // Check if runs directory exists
+    try {
+      await access(runsDir);
+    } catch {
+      return { correlations: [], totalFailures: 0 };
+    }
+    
+    // Get all run directories
+    const runDirs = await readdir(runsDir);
+    const sortedRuns = runDirs.sort().reverse(); // Newest first
+    
+    const correlations: any[] = [];
+    
+    // Analyze recent failures (last 10 runs)
+    for (const runDir of sortedRuns.slice(0, 10)) {
+      const runPath = join(runsDir, runDir);
+      const runJsonPath = join(runPath, 'run.json');
+      
+      try {
+        const runData = JSON.parse(await readFile(runJsonPath, 'utf-8'));
+        const failedTasks = runData.tasks?.filter((t: any) => t.status === 'FAIL') || [];
+        
+        if (failedTasks.length === 0) continue;
+        
+        // Get git log for this timeframe
+        const timestamp = new Date(runData.timestamp);
+        const timeBefore = new Date(timestamp.getTime() - 3600000); // 1 hour before
+        
+        try {
+          // Get commits in the hour before this run
+          const gitLogCmd = `git log --since="${timeBefore.toISOString()}" --until="${timestamp.toISOString()}" --pretty=format:"%H|%s|%an" --name-only`;
+          const gitResult = await execAsync(gitLogCmd, { cwd });
+          
+          if (gitResult.stdout.trim()) {
+            const commits = parseGitLog(gitResult.stdout);
+            
+            // Get files changed in recent commits
+            const recentFilesCmd = `git diff --name-only HEAD~5 HEAD`;
+            const filesResult = await execAsync(recentFilesCmd, { cwd });
+            const recentFiles = filesResult.stdout.trim().split('\n').filter(Boolean);
+            
+            for (const task of failedTasks) {
+              // Check if task has watchPaths
+              const taskConfig = config.tasks?.[task.id];
+              const watchPaths = taskConfig?.watchPaths || [];
+              
+              // Find files that match task's watchPaths
+              const matchedFiles = recentFiles.filter(file => 
+                watchPaths.length === 0 || watchPaths.some((pattern: string) => minimatch(file, pattern))
+              );
+              
+              correlations.push({
+                taskId: task.id,
+                taskName: task.name,
+                timestamp: runData.timestamp,
+                runId: runDir,
+                exitCode: task.exitCode,
+                correlatedChanges: {
+                  commits: commits.slice(0, 3), // Last 3 commits
+                  filesChanged: matchedFiles,
+                  totalCommits: commits.length,
+                  totalFilesChanged: recentFiles.length,
+                },
+                likelihood: matchedFiles.length > 0 ? 'high' : commits.length > 0 ? 'medium' : 'low',
+                analysis: matchedFiles.length > 0
+                  ? `${matchedFiles.length} file(s) matching task watchPaths were changed`
+                  : commits.length > 0
+                  ? `${commits.length} commit(s) made before failure`
+                  : 'No recent changes detected',
+              });
+            }
+          }
+        } catch {
+          // Git commands might fail, skip this run
+        }
+      } catch {
+        continue;
+      }
+    }
+    
+    return {
+      correlations,
+      summary: {
+        totalFailures: correlations.length,
+        highLikelihood: correlations.filter(c => c.likelihood === 'high').length,
+        mediumLikelihood: correlations.filter(c => c.likelihood === 'medium').length,
+        lowLikelihood: correlations.filter(c => c.likelihood === 'low').length,
+      },
+    };
+  } catch (error) {
+    throw new Error(`Failed to analyze change correlation: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Parse git log output into structured commits
+ */
+function parseGitLog(output: string): any[] {
+  const commits: any[] = [];
+  const lines = output.split('\n');
+  let currentCommit: any = null;
+  
+  for (const line of lines) {
+    if (line.includes('|')) {
+      // Commit line: hash|message|author
+      if (currentCommit) {
+        commits.push(currentCommit);
+      }
+      const [hash, message, author] = line.split('|');
+      currentCommit = {
+        hash: hash.substring(0, 7),
+        message,
+        author,
+        files: [],
+      };
+    } else if (line.trim() && currentCommit) {
+      // File line
+      currentCommit.files.push(line.trim());
+    }
+  }
+  
+  if (currentCommit) {
+    commits.push(currentCommit);
+  }
+  
+  return commits;
+}
+
+/**
+ * Calculate overall pipeline health score
+ */
+export async function getPipelineHealth(configPath: string, config: DevpipeConfig): Promise<any> {
+  try {
+    // Gather all intelligence data
+    const [
+      taskHistory,
+      recentFailures,
+      flakinessReport,
+      performanceRegressions,
+    ] = await Promise.all([
+      getTaskHistory(configPath, config),
+      getRecentFailures(configPath, config, 20),
+      detectFlakyTasks(configPath, config),
+      detectPerformanceRegressions(configPath, config),
+    ]);
+    
+    // Calculate health score components
+    let healthScore = 100;
+    const issues: any[] = [];
+    const warnings: any[] = [];
+    
+    // 1. Recent failure rate (max -30 points)
+    const recentFailureRate = recentFailures.summary.totalFailures / Math.max(recentFailures.totalRuns, 1);
+    const failurePenalty = Math.min(30, Math.round(recentFailureRate * 100));
+    healthScore -= failurePenalty;
+    
+    if (recentFailures.summary.newFailures > 0) {
+      issues.push({
+        type: 'new_failures',
+        severity: 'high',
+        count: recentFailures.summary.newFailures,
+        message: `${recentFailures.summary.newFailures} task(s) started failing recently`,
+      });
+    }
+    
+    // 2. Flakiness (max -25 points)
+    const flakinessPenalty = Math.min(25, flakinessReport.summary.flakyCount * 10);
+    healthScore -= flakinessPenalty;
+    
+    if (flakinessReport.summary.flakyCount > 0) {
+      issues.push({
+        type: 'flaky_tests',
+        severity: 'medium',
+        count: flakinessReport.summary.flakyCount,
+        message: `${flakinessReport.summary.flakyCount} flaky task(s) detected`,
+        tasks: flakinessReport.flakyTasks.slice(0, 3).map((t: any) => t.taskId),
+      });
+    }
+    
+    // 3. Performance regressions (max -25 points)
+    const regressionPenalty = Math.min(25, performanceRegressions.summary.regressedTasks * 8);
+    healthScore -= regressionPenalty;
+    
+    if (performanceRegressions.summary.criticalRegressions > 0) {
+      issues.push({
+        type: 'performance_regression',
+        severity: 'high',
+        count: performanceRegressions.summary.criticalRegressions,
+        message: `${performanceRegressions.summary.criticalRegressions} task(s) are 2x+ slower`,
+        tasks: performanceRegressions.regressions
+          .filter((r: any) => r.severity === 'critical')
+          .map((r: any) => r.taskId),
+      });
+    } else if (performanceRegressions.summary.regressedTasks > 0) {
+      warnings.push({
+        type: 'performance_degradation',
+        count: performanceRegressions.summary.regressedTasks,
+        message: `${performanceRegressions.summary.regressedTasks} task(s) getting slower`,
+      });
+    }
+    
+    // 4. Overall success rate (max -20 points)
+    const totalTasks = Object.keys(taskHistory.tasks).length;
+    let overallSuccessRate = 0;
+    if (totalTasks > 0) {
+      const successCounts = Object.values(taskHistory.tasks).map((t: any) => t.successCount);
+      const totalCounts = Object.values(taskHistory.tasks).map((t: any) => t.totalRuns);
+      const totalSuccess = successCounts.reduce((a: number, b: number) => a + b, 0);
+      const totalRuns = totalCounts.reduce((a: number, b: number) => a + b, 0);
+      overallSuccessRate = totalRuns > 0 ? totalSuccess / totalRuns : 1;
+      
+      const successPenalty = Math.round((1 - overallSuccessRate) * 20);
+      healthScore -= successPenalty;
+    }
+    
+    // Determine status
+    let status = 'excellent';
+    if (healthScore < 50) status = 'critical';
+    else if (healthScore < 70) status = 'poor';
+    else if (healthScore < 85) status = 'fair';
+    else if (healthScore < 95) status = 'good';
+    
+    // Generate recommendations
+    const recommendations: string[] = [];
+    if (recentFailures.summary.newFailures > 0) {
+      recommendations.push('Investigate recently failing tasks - likely caused by recent changes');
+    }
+    if (flakinessReport.summary.flakyCount > 0) {
+      recommendations.push('Fix flaky tests to improve pipeline reliability');
+    }
+    if (performanceRegressions.summary.criticalRegressions > 0) {
+      recommendations.push('Critical: Some tasks are 2x+ slower - immediate optimization needed');
+    }
+    if (overallSuccessRate < 0.9) {
+      recommendations.push('Overall success rate is low - review task configurations');
+    }
+    
+    return {
+      healthScore: Math.max(0, Math.round(healthScore)),
+      status,
+      timestamp: new Date().toISOString(),
+      metrics: {
+        totalTasks,
+        totalRuns: taskHistory.totalRuns,
+        recentFailureRate: Math.round(recentFailureRate * 100) / 100,
+        overallSuccessRate: Math.round(overallSuccessRate * 100) / 100,
+        flakyTaskCount: flakinessReport.summary.flakyCount,
+        regressedTaskCount: performanceRegressions.summary.regressedTasks,
+      },
+      issues,
+      warnings,
+      recommendations,
+      details: {
+        recentFailures: recentFailures.summary,
+        flakiness: flakinessReport.summary,
+        performance: performanceRegressions.summary,
+      },
+    };
+  } catch (error) {
+    throw new Error(`Failed to calculate pipeline health: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Compare two pipeline runs
+ */
+export async function compareRuns(configPath: string, config: DevpipeConfig, run1Id: string, run2Id: string): Promise<any> {
+  try {
+    const outputDir = getOutputDir(configPath, config);
+    const runsDir = join(outputDir, 'runs');
+    
+    // Check if runs directory exists
+    try {
+      await access(runsDir);
+    } catch {
+      throw new Error('No runs directory found');
+    }
+    
+    // Get all run directories
+    const runDirs = await readdir(runsDir);
+    const sortedRuns = runDirs.sort().reverse(); // Newest first
+    
+    // Resolve run IDs
+    let actualRun1Id = run1Id;
+    let actualRun2Id = run2Id;
+    
+    if (run1Id === 'latest') {
+      actualRun1Id = sortedRuns[0];
+    }
+    
+    if (run2Id === 'previous') {
+      const run1Index = sortedRuns.indexOf(actualRun1Id);
+      if (run1Index < 0 || run1Index >= sortedRuns.length - 1) {
+        throw new Error('No previous run found');
+      }
+      actualRun2Id = sortedRuns[run1Index + 1];
+    }
+    
+    // Load both runs
+    const run1Path = join(runsDir, actualRun1Id, 'run.json');
+    const run2Path = join(runsDir, actualRun2Id, 'run.json');
+    
+    let run1Data: any;
+    let run2Data: any;
+    
+    try {
+      run1Data = JSON.parse(await readFile(run1Path, 'utf-8'));
+    } catch {
+      throw new Error(`Run not found: ${actualRun1Id}`);
+    }
+    
+    try {
+      run2Data = JSON.parse(await readFile(run2Path, 'utf-8'));
+    } catch {
+      throw new Error(`Run not found: ${actualRun2Id}`);
+    }
+    
+    // Compare results
+    const taskComparisons: any[] = [];
+    const newFailures: any[] = [];
+    const newPasses: any[] = [];
+    const performanceChanges: any[] = [];
+    
+    // Create task maps
+    const run1Tasks = new Map(run1Data.tasks?.map((t: any) => [t.id, t]) || []);
+    const run2Tasks = new Map(run2Data.tasks?.map((t: any) => [t.id, t]) || []);
+    
+    // Get all unique task IDs
+    const allTaskIds = new Set([...run1Tasks.keys(), ...run2Tasks.keys()]);
+    
+    for (const taskId of allTaskIds) {
+      const task1: any = run1Tasks.get(taskId);
+      const task2: any = run2Tasks.get(taskId);
+      
+      if (!task1 && task2) {
+        // New task in run1
+        taskComparisons.push({
+          taskId,
+          status: 'new_task',
+          run1Status: task2.status,
+          run2Status: 'not_present',
+        });
+        continue;
+      }
+      
+      if (task1 && !task2) {
+        // Task removed in run1
+        taskComparisons.push({
+          taskId,
+          status: 'removed_task',
+          run1Status: 'not_present',
+          run2Status: task1.status,
+        });
+        continue;
+      }
+      
+      if (!task1 || !task2) continue;
+      
+      // Compare status
+      const statusChanged = task1.status !== task2.status;
+      let statusChange = 'unchanged';
+      
+      if (statusChanged) {
+        if (task1.status === 'FAIL' && task2.status === 'PASS') {
+          statusChange = 'new_failure';
+          newFailures.push({
+            taskId,
+            taskName: task1.name,
+            exitCode: task1.exitCode,
+          });
+        } else if (task1.status === 'PASS' && task2.status === 'FAIL') {
+          statusChange = 'fixed';
+          newPasses.push({
+            taskId,
+            taskName: task1.name,
+          });
+        } else {
+          statusChange = 'status_changed';
+        }
+      }
+      
+      // Compare duration (only for successful tasks)
+      let durationChange = 0;
+      let durationPercent = 0;
+      
+      if (task1.status === 'PASS' && task2.status === 'PASS') {
+        durationChange = task1.duration - task2.duration;
+        durationPercent = task2.duration > 0 ? Math.round((durationChange / task2.duration) * 100) : 0;
+        
+        if (Math.abs(durationPercent) >= 20) {
+          performanceChanges.push({
+            taskId,
+            taskName: task1.name,
+            run1Duration: task1.duration,
+            run2Duration: task2.duration,
+            change: durationChange,
+            percentChange: durationPercent,
+            type: durationPercent > 0 ? 'slower' : 'faster',
+          });
+        }
+      }
+      
+      taskComparisons.push({
+        taskId,
+        taskName: task1.name,
+        run1Status: task1.status,
+        run2Status: task2.status,
+        statusChange,
+        run1Duration: task1.duration,
+        run2Duration: task2.duration,
+        durationChange,
+        durationPercent,
+      });
+    }
+    
+    // Compare metrics if available
+    const metricsComparison: any = {};
+    
+    // Try to load JUnit metrics
+    try {
+      const run1MetricsPath = join(runsDir, actualRun1Id, 'metrics');
+      const run2MetricsPath = join(runsDir, actualRun2Id, 'metrics');
+      
+      const run1Files = await readdir(run1MetricsPath).catch(() => []);
+      const run2Files = await readdir(run2MetricsPath).catch(() => []);
+      
+      const junitFiles1 = run1Files.filter(f => f.endsWith('.xml'));
+      const junitFiles2 = run2Files.filter(f => f.endsWith('.xml'));
+      
+      if (junitFiles1.length > 0 && junitFiles2.length > 0) {
+        metricsComparison.junit = {
+          run1Files: junitFiles1.length,
+          run2Files: junitFiles2.length,
+          note: 'Detailed metric comparison available via parse_metrics tool',
+        };
+      }
+    } catch {
+      // Metrics comparison not available
+    }
+    
+    return {
+      run1: {
+        id: actualRun1Id,
+        timestamp: run1Data.timestamp,
+        success: run1Data.success,
+        duration: run1Data.duration,
+        tasksRun: run1Data.tasks?.length || 0,
+      },
+      run2: {
+        id: actualRun2Id,
+        timestamp: run2Data.timestamp,
+        success: run2Data.success,
+        duration: run2Data.duration,
+        tasksRun: run2Data.tasks?.length || 0,
+      },
+      summary: {
+        newFailures: newFailures.length,
+        fixed: newPasses.length,
+        performanceRegressions: performanceChanges.filter((p: any) => p.type === 'slower').length,
+        performanceImprovements: performanceChanges.filter((p: any) => p.type === 'faster').length,
+        totalDurationChange: run1Data.duration - run2Data.duration,
+      },
+      newFailures,
+      fixed: newPasses,
+      performanceChanges,
+      taskComparisons,
+      metricsComparison,
+    };
+  } catch (error) {
+    throw new Error(`Failed to compare runs: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Predict which tasks are likely to fail based on changed files and historical patterns
+ */
+export async function predictImpact(configPath: string, config: DevpipeConfig): Promise<any> {
+  try {
+    const cwd = dirname(configPath);
+    
+    // Get changed files
+    const changedFiles = await getChangedFiles(configPath, config);
+    
+    if (changedFiles.count === 0) {
+      return {
+        predictions: [],
+        recommendation: 'No changes detected - all tasks should pass',
+        changedFiles: [],
+      };
+    }
+    
+    // Get historical correlation data
+    const correlation = await analyzeChangeCorrelation(configPath, config);
+    
+    // Get task history for failure rates
+    const taskHistory = await getTaskHistory(configPath, config);
+    
+    // Analyze each task
+    const predictions: any[] = [];
+    const tasks = config.tasks ? Object.values(config.tasks) : [];
+    
+    for (const task of tasks) {
+      const taskId = (task as any).id || '';
+      const watchPaths = (task as any).watchPaths || [];
+      
+      // Calculate risk score based on multiple factors
+      let riskScore = 0;
+      const riskFactors: string[] = [];
+      
+      // Factor 1: WatchPaths matching (40 points)
+      const matchedFiles = changedFiles.files.filter((file: string) => 
+        watchPaths.length === 0 || watchPaths.some((pattern: string) => minimatch(file, pattern))
+      );
+      
+      if (matchedFiles.length > 0) {
+        const matchRatio = matchedFiles.length / changedFiles.count;
+        riskScore += Math.round(matchRatio * 40);
+        riskFactors.push(`${matchedFiles.length} changed file(s) match watchPaths`);
+      }
+      
+      // Factor 2: Historical failure correlation (30 points)
+      const taskCorrelations = correlation.correlations.filter((c: any) => c.taskId === taskId);
+      if (taskCorrelations.length > 0) {
+        const highLikelihood = taskCorrelations.filter((c: any) => c.likelihood === 'high').length;
+        const mediumLikelihood = taskCorrelations.filter((c: any) => c.likelihood === 'medium').length;
+        
+        if (highLikelihood > 0) {
+          riskScore += 30;
+          riskFactors.push(`High correlation with past failures (${highLikelihood} occurrence(s))`);
+        } else if (mediumLikelihood > 0) {
+          riskScore += 15;
+          riskFactors.push(`Medium correlation with past failures (${mediumLikelihood} occurrence(s))`);
+        }
+      }
+      
+      // Factor 3: Recent failure rate (30 points)
+      const history = taskHistory.tasks[taskId];
+      if (history) {
+        const recentFailureRate = history.failureCount / history.totalRuns;
+        riskScore += Math.round(recentFailureRate * 30);
+        
+        if (recentFailureRate > 0.3) {
+          riskFactors.push(`High recent failure rate (${Math.round(recentFailureRate * 100)}%)`);
+        } else if (recentFailureRate > 0.1) {
+          riskFactors.push(`Moderate recent failure rate (${Math.round(recentFailureRate * 100)}%)`);
+        }
+      }
+      
+      // Only include tasks with some risk
+      if (riskScore > 0) {
+        let riskLevel = 'low';
+        if (riskScore >= 70) riskLevel = 'critical';
+        else if (riskScore >= 50) riskLevel = 'high';
+        else if (riskScore >= 30) riskLevel = 'medium';
+        
+        predictions.push({
+          taskId,
+          taskName: (task as any).name || taskId,
+          riskScore,
+          riskLevel,
+          riskFactors,
+          matchedFiles,
+          recommendation: riskScore >= 70
+            ? 'Very likely to fail - run this task first'
+            : riskScore >= 50
+            ? 'High risk - include in pre-merge validation'
+            : riskScore >= 30
+            ? 'Medium risk - monitor closely'
+            : 'Low risk - standard validation',
+        });
+      }
+    }
+    
+    // Sort by risk score (highest first)
+    predictions.sort((a, b) => b.riskScore - a.riskScore);
+    
+    // Generate recommendations
+    const highRiskTasks = predictions.filter(p => p.riskLevel === 'critical' || p.riskLevel === 'high');
+    const mediumRiskTasks = predictions.filter(p => p.riskLevel === 'medium');
+    
+    let recommendation = '';
+    const suggestedTasks: string[] = [];
+    
+    if (highRiskTasks.length > 0) {
+      suggestedTasks.push(...highRiskTasks.map(t => t.taskId));
+      recommendation = `Run high-risk tasks first: ${highRiskTasks.map(t => t.taskId).join(', ')}`;
+    } else if (mediumRiskTasks.length > 0) {
+      suggestedTasks.push(...mediumRiskTasks.slice(0, 3).map(t => t.taskId));
+      recommendation = `Consider running: ${mediumRiskTasks.slice(0, 3).map(t => t.taskId).join(', ')}`;
+    } else if (predictions.length > 0) {
+      recommendation = 'Low risk changes - standard validation recommended';
+    } else {
+      recommendation = 'No specific tasks at risk - run full pipeline';
+    }
+    
+    return {
+      predictions,
+      summary: {
+        totalTasks: tasks.length,
+        atRiskTasks: predictions.length,
+        criticalRisk: predictions.filter(p => p.riskLevel === 'critical').length,
+        highRisk: predictions.filter(p => p.riskLevel === 'high').length,
+        mediumRisk: predictions.filter(p => p.riskLevel === 'medium').length,
+        lowRisk: predictions.filter(p => p.riskLevel === 'low').length,
+      },
+      changedFiles: changedFiles.files,
+      totalChangedFiles: changedFiles.count,
+      recommendation,
+      suggestedCommand: suggestedTasks.length > 0
+        ? `devpipe --only ${suggestedTasks.join(',')}`
+        : 'devpipe',
+    };
+  } catch (error) {
+    throw new Error(`Failed to predict impact: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Analyze which tasks will run based on watchPaths and changed files
+ */
+export async function getWatchPathsAnalysis(configPath: string, config: DevpipeConfig): Promise<any> {
+  try {
+    // Get changed files
+    const changedFiles = await getChangedFiles(configPath, config);
+    
+    // Get all tasks as array
+    const tasks = config.tasks ? Object.values(config.tasks) : [];
+    
+    // Analyze each task
+    const analysis = tasks.map((task: any) => {
+      if (!task.watchPaths || task.watchPaths.length === 0) {
+        return {
+          id: task.id,
+          name: task.name,
+          willRun: true,
+          reason: 'No watchPaths configured - always runs',
+          watchPaths: [],
+          matchedFiles: [],
+        };
+      }
+      
+      // Check if any changed file matches watchPaths patterns
+      const matchedFiles = changedFiles.files.filter((file: string) => 
+        task.watchPaths!.some((pattern: string) => minimatch(file, pattern))
+      );
+      
+      return {
+        id: task.id,
+        name: task.name,
+        willRun: matchedFiles.length > 0,
+        reason: matchedFiles.length > 0 
+          ? `Matched ${matchedFiles.length} changed file(s)`
+          : 'No changed files match watchPaths',
+        watchPaths: task.watchPaths,
+        matchedFiles,
+      };
+    });
+    
+    return {
+      gitMode: changedFiles.mode,
+      totalChangedFiles: changedFiles.count,
+      changedFiles: changedFiles.files,
+      tasks: analysis,
+      summary: {
+        willRun: analysis.filter((t: any) => t.willRun).length,
+        willSkip: analysis.filter((t: any) => !t.willRun).length,
+        total: analysis.length,
+      },
+    };
+  } catch (error) {
+    throw new Error(`Failed to analyze watchPaths: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }

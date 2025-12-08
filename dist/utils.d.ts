@@ -64,6 +64,7 @@ export declare function buildDevpipeCommand(args: {
     dashboard?: boolean;
     failFast?: boolean;
     fast?: boolean;
+    ignoreWatchPaths?: boolean;
     dryRun?: boolean;
     verbose?: boolean;
     noColor?: boolean;
@@ -130,4 +131,56 @@ export declare function createConfig(projectPath?: string, options?: {
  * Generate CI/CD configuration from devpipe config
  */
 export declare function generateCIConfig(config: DevpipeConfig, platform: 'github' | 'gitlab'): string;
+/**
+ * Extract a Go template constant from source code
+ */
+export declare function extractGoTemplate(sourceCode: string, templateName: string): string;
+/**
+ * Get git status for the current repository
+ */
+export declare function getGitStatus(cwd?: string): Promise<any>;
+/**
+ * Get changed files based on git mode from config
+ */
+export declare function getChangedFiles(configPath: string, config: DevpipeConfig): Promise<any>;
+/**
+ * Get aggregated metrics summary across all runs
+ */
+export declare function getMetricsSummary(configPath: string, config: DevpipeConfig): Promise<any>;
+/**
+ * Get task history across all runs
+ */
+export declare function getTaskHistory(configPath: string, config: DevpipeConfig): Promise<any>;
+/**
+ * Get recent task failures with error details and patterns
+ */
+export declare function getRecentFailures(configPath: string, config: DevpipeConfig, limit?: number): Promise<any>;
+/**
+ * Detect flaky tasks based on inconsistent pass/fail patterns
+ */
+export declare function detectFlakyTasks(configPath: string, config: DevpipeConfig, minRuns?: number): Promise<any>;
+/**
+ * Detect performance regressions in task execution times
+ */
+export declare function detectPerformanceRegressions(configPath: string, config: DevpipeConfig, threshold?: number): Promise<any>;
+/**
+ * Correlate task failures with recent file changes
+ */
+export declare function analyzeChangeCorrelation(configPath: string, config: DevpipeConfig): Promise<any>;
+/**
+ * Calculate overall pipeline health score
+ */
+export declare function getPipelineHealth(configPath: string, config: DevpipeConfig): Promise<any>;
+/**
+ * Compare two pipeline runs
+ */
+export declare function compareRuns(configPath: string, config: DevpipeConfig, run1Id: string, run2Id: string): Promise<any>;
+/**
+ * Predict which tasks are likely to fail based on changed files and historical patterns
+ */
+export declare function predictImpact(configPath: string, config: DevpipeConfig): Promise<any>;
+/**
+ * Analyze which tasks will run based on watchPaths and changed files
+ */
+export declare function getWatchPathsAnalysis(configPath: string, config: DevpipeConfig): Promise<any>;
 //# sourceMappingURL=utils.d.ts.map
