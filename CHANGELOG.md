@@ -1,3 +1,10 @@
+## [0.2.3](https://github.com/drewkhoury/devpipe-mcp/compare/v0.2.2...v0.2.3) (2025-12-08)
+
+
+### Bug Fixes
+
+* update all field references to outputType/outputPath ([a879954](https://github.com/drewkhoury/devpipe-mcp/commit/a879954b757f118c0f62a15119d3ed0881513119))
+
 # Changelog
 
 All notable changes to the devpipe MCP server will be documented in this file.
