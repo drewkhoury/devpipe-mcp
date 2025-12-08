@@ -1,3 +1,10 @@
+## [0.2.7](https://github.com/drewkhoury/devpipe-mcp/compare/v0.2.6...v0.2.7) (2025-12-08)
+
+
+### Bug Fixes
+
+* add zod to dependencies ([#1](https://github.com/drewkhoury/devpipe-mcp/issues/1)) ([05e4223](https://github.com/drewkhoury/devpipe-mcp/commit/05e42231eb842a145ebd0c7fb2ae60ff660049e4))
+
 ## [0.2.6](https://github.com/drewkhoury/devpipe-mcp/compare/v0.2.5...v0.2.6) (2025-12-08)
 
 
