@@ -1,0 +1,102 @@
+# devpipe-mcp Development Rules
+
+## Commit Format (REQUIRED)
+
+Use conventional commits for semantic-release automation:
+
+```
+<type>: <subject>
+
+<body>
+```
+
+**Types:**
+- `feat:` → Minor bump (0.2.x → 0.3.0)
+- `fix:` → Patch bump (0.2.2 → 0.2.3)
+- `docs:`, `refactor:`, `perf:` → Patch bump
+- `chore:`, `test:`, `ci:`, `build:` → No release
+- `feat!:` or `BREAKING CHANGE:` → Major bump (1.0.0)
+
+**Examples:**
+```bash
+git commit -m "feat: add pipeline health scoring"
+git commit -m "fix: update field references to outputType/outputPath"
+git commit -m "docs: update README"
+```
+
+## Git Rules
+
+### ✅ AI Can Do
+- `git status`, `git diff`, `git log`
+- `git add`, `git commit` (with conventional format, must have approval)
+
+### ❌ AI Cannot Do
+- `git push` (NEVER - only human pushes)
+- `git tag` (semantic-release handles this)
+
+**Why:** Pushing to main triggers automated release (version bump, npm publish, GitHub release).
+
+## AI Commit Workflow
+
+**Before every commit, AI must:**
+
+1. Show summary with copy-paste commands:
+   ```
+   Files changed:
+   - src/index.ts (added feature X)
+   - README.md (updated docs)
+   
+   Impact: Minor bump (0.2.x → 0.3.0)
+   
+   Copy and paste:
+   
+   git add src/index.ts README.md
+   
+   git commit -m "feat: add feature X
+   
+   - Implement feature X functionality
+   - Update documentation"
+   ```
+
+2. Ask: "Ready to commit?"
+
+3. Wait for user approval
+
+**Never:**
+- ❌ Auto-commit without showing plan
+- ❌ Push (ever)
+- ❌ Skip confirmation
+
+## Pre-Commit
+
+Always run: `npm run build`
+
+## Version Updates
+
+When version changes, update:
+- `package.json` (semantic-release handles this)
+- `src/index.ts` lines 64, 121
+- `src/index.ts` line 1944 (mcp-info prompt)
+
+## Emergency (Human Only)
+
+### If Semantic-Release Fails
+
+1. Human checks GitHub Actions logs
+2. AI fixes issue (commits only)
+3. Human pushes fix
+4. Semantic-release will retry on next push
+
+### Manual Override (if automation broken)
+
+```bash
+# Human runs:
+npm version patch  # or minor, major
+npm run build
+npm publish
+```
+
+## References
+
+- https://www.conventionalcommits.org/
+- https://semantic-release.gitbook.io/
