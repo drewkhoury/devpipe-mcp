@@ -1,3 +1,10 @@
+## [0.2.6](https://github.com/drewkhoury/devpipe-mcp/compare/v0.2.5...v0.2.6) (2025-12-08)
+
+
+### Bug Fixes
+
+* update npm to latest for Trusted Publishing support ([a5bb008](https://github.com/drewkhoury/devpipe-mcp/commit/a5bb008f007f78abba68540d11905610ee3a4d24))
+
 ## [0.2.5](https://github.com/drewkhoury/devpipe-mcp/compare/v0.2.4...v0.2.5) (2025-12-08)
 
 
