@@ -365,8 +365,8 @@ export function generateTaskConfig(technology, taskType, taskId) {
                 desc: 'Run all unit tests',
                 type: 'test',
                 command: 'go test -v ./...',
-                metricsFormat: 'junit',
-                metricsPath: 'test-results.xml'
+                outputType: 'junit',
+                outputPath: 'test-results.xml'
             },
             'build': {
                 name: 'Build Binary',
@@ -403,8 +403,8 @@ export function generateTaskConfig(technology, taskType, taskId) {
                 desc: 'Run pytest unit tests',
                 type: 'test',
                 command: 'pytest',
-                metricsFormat: 'junit',
-                metricsPath: 'test-results.xml'
+                outputType: 'junit',
+                outputPath: 'test-results.xml'
             }
         },
         'Node.js': {
@@ -458,11 +458,11 @@ export function generateTaskConfig(technology, taskType, taskId) {
     if (template.fixCommand) {
         toml += `fixCommand = "${template.fixCommand}"\n`;
     }
-    if (template.metricsFormat) {
-        toml += `metricsFormat = "${template.metricsFormat}"\n`;
+    if (template.outputType) {
+        toml += `outputType = "${template.outputType}"\n`;
     }
-    if (template.metricsPath) {
-        toml += `metricsPath = "${template.metricsPath}"\n`;
+    if (template.outputPath) {
+        toml += `outputPath = "${template.outputPath}"\n`;
     }
     return toml;
 }

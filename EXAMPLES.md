@@ -59,8 +59,8 @@ desc = "Run Go unit tests and generate coverage report"
 command = "go test -v -race -coverprofile=coverage.out ./..."
 type = "test"
 workdir = "."
-metricsFormat = "junit"
-metricsPath = "test-results.xml"
+outputType = "junit"
+outputPath = "test-results.xml"
 ```
 
 ---

@@ -1654,7 +1654,7 @@ Task type: ${taskType}
 Please provide:
 1. A complete task configuration in TOML format
 2. The command to run
-3. Recommended settings (workdir, fixType, metricsFormat, etc.)
+3. Recommended settings (workdir, fixType, outputType, etc.)
 4. Any dependencies or setup required
 5. Example of how to integrate it into an existing config.toml
 
