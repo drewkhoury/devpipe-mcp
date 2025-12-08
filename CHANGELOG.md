@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.2] - 2024-12-07
 
 ### Added
+- **devpipe v0.2.0 compatibility** - Updated for devpipe v0.2.0 field renames (metricsFormat/Path → outputType/Path)
 - **`ignoreWatchPaths` flag support** - Added support for devpipe v0.1.0's `--ignore-watch-paths` flag to run all tasks regardless of git changes
 - **Template resources** - Added `devpipe://template-dashboard` and `devpipe://template-ide` resources that fetch HTML templates directly from devpipe GitHub source
 - **Release resources** - Added `devpipe://releases-latest` and `devpipe://releases-all` resources that fetch release notes from GitHub releases API
@@ -27,15 +28,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New documentation file `docs/FIX_SUMMARY.md` documenting the config path fix
 - New utility function `extractGoTemplate()` to parse Go template constants from source code
 - New prompt `configure-metrics` to guide users on proper JUnit, SARIF, and artifact metrics configuration
+- New prompt `mcp-info` to show MCP version and devpipe compatibility information
 - New tool `get_pipeline_health` to calculate overall pipeline health score with trend analysis and recommendations
 - New tool `compare_runs` to compare two pipeline runs and identify changes in failures, performance, and metrics
 - New tool `predict_impact` to predict which tasks are likely to fail based on changed files and historical patterns
 
 ### Changed
-- **Updated for devpipe v0.1.0 compatibility**
-  - Minimum required version is now v0.1.0
+- **Updated for devpipe v0.2.0 compatibility**
+  - Minimum required version is now v0.2.0
+  - Updated field names: metricsFormat → outputType, metricsPath → outputPath
+  - Updated configure-metrics prompt with new field names
+  - Updated type definitions and documentation
+  - Note: Run folder structure changed (artifacts/ → outputs/)
+- **Previously updated for devpipe v0.1.0**
   - Added `ignoreWatchPaths` parameter to `run_pipeline` tool
-  - Updated documentation to reflect v0.1.0 features
 - **Improved error messages** - Resource handler now shows where it's searching for config files and provides actionable guidance when config.toml is not found
 - **Updated all configuration examples** in README.md and SETUP.md to include DEVPIPE_CWD environment variable
 - **Enhanced troubleshooting section** in SETUP.md with DEVPIPE_CWD configuration as the primary solution

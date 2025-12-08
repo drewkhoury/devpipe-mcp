@@ -31,8 +31,8 @@ export interface DevpipeTask {
     enabled?: boolean;
     fixType?: 'auto' | 'helper' | 'none';
     fixCommand?: string;
-    metricsFormat?: 'junit' | 'sarif' | 'artifact';
-    metricsPath?: string;
+    outputType?: 'junit' | 'sarif' | 'artifact';
+    outputPath?: string;
     watchPaths?: string[];
 }
 export interface RunMetadata {

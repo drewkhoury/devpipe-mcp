@@ -1708,8 +1708,12 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => {
         description: 'Review SARIF security findings and provide recommendations',
       },
       {
+        name: 'mcp-info',
+        description: 'Get information about this MCP server version and devpipe compatibility.',
+      },
+      {
         name: 'configure-metrics',
-        description: 'Help configure JUnit, SARIF, or artifact metrics for a task',
+        description: 'Guide on configuring JUnit, SARIF, and artifact metrics for tasks.',
         arguments: [
           {
             name: 'taskType',
@@ -1928,11 +1932,65 @@ Please provide:
         };
       }
 
+      case 'mcp-info': {
+        return {
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `# devpipe-mcp Server Information
+
+**MCP Version:** 0.2.2
+**devpipe Compatibility:** v0.2.0+
+
+## What's Supported
+
+This MCP server is designed for devpipe v0.2.0 and later, which includes:
+
+### Field Names (v0.2.0+)
+- ✅ \`outputType\` (junit, sarif, artifact)
+- ✅ \`outputPath\` (path to output file/folder)
+- ✅ \`projectRoot\` (optional project base directory)
+- ❌ ~~metricsFormat~~ (renamed to outputType)
+- ❌ ~~metricsPath~~ (renamed to outputPath)
+
+### Run Structure (v0.2.0+)
+- ✅ \`.devpipe/runs/{timestamp}/outputs/\` (new)
+- ❌ ~~.devpipe/runs/{timestamp}/artifacts/~~ (old)
+
+### Key Features
+- 28 resources (docs, git, history, intelligence)
+- 20 tools (full lifecycle + analytics)
+- 7 prompts (including this one!)
+- Intelligence: health scoring, run comparison, impact prediction
+
+## Backward Compatibility
+
+If you're using devpipe v0.1.0 or earlier:
+- The MCP will still work for reading/analyzing runs
+- Use \`metricsFormat\` and \`metricsPath\` in your configs
+- Some prompts may reference newer field names
+
+## Recommended Action
+
+Upgrade to devpipe v0.2.0:
+\`\`\`bash
+brew upgrade drewkhoury/tap/devpipe
+\`\`\`
+
+Check your version:
+\`\`\`bash
+devpipe --version
+\`\`\``,
+              },
+            },
+          ],
+        };
+      }
+
       case 'configure-metrics': {
-        // NOTE: Future devpipe versions will rename these fields:
-        // metricsFormat -> outputType
-        // metricsPath -> outputPath
-        // Update this prompt when that change is released
+        // Updated for devpipe v0.2.0: metricsFormat/Path -> outputType/Path
         
         if (!args?.taskType || !args?.tool) {
           throw new Error('taskType and tool arguments are required');
@@ -1947,11 +2005,11 @@ Please provide:
               role: 'user',
               content: {
                 type: 'text',
-                text: `Help configure metrics for ${tool} (${taskType} task):
+                text: `Help configure outputs for ${tool} (${taskType} task):
 
-IMPORTANT: devpipe uses specific metrics configuration:
+IMPORTANT: devpipe v0.2.0+ uses specific output configuration:
 
-## Metrics Formats
+## Output Types
 
 1. **junit** - For test results (XML format)
    - Use for: test runners (jest, pytest, go test, etc.)
@@ -1965,29 +2023,30 @@ IMPORTANT: devpipe uses specific metrics configuration:
    - Use for: compiled binaries, packages, archives
    - Stores the artifact file itself
 
-## Configuration Pattern
+## Configuration Pattern (devpipe v0.2.0+)
 
 \`\`\`toml
 [tasks.${tool.toLowerCase().replace(/[^a-z0-9]/g, '-')}]
 command = "..."
 type = "${taskType}"
-metricsFormat = "junit|sarif|artifact"  # Choose one
-metricsPath = "results/${tool}.xml"     # Path relative to workdir
+outputType = "junit|sarif|artifact"  # Choose one
+outputPath = "results/${tool}.xml"   # Path relative to workdir
 \`\`\`
 
 ## Key Points
 
-- **metricsPath** is a folder/file in your project (e.g., results/, logs/, artifacts/)
+- **outputPath** is a folder/file in your project (e.g., results/, logs/, build/)
 - Should be in .gitignore
 - NOT part of .devpipe/runs/ (devpipe manages that internally)
 - Path is relative to task's workdir
+- **Note:** devpipe v0.2.0 renamed metricsFormat/Path to outputType/Path
 
 ## Tool-Specific Guidance for ${tool}
 
 Please provide:
 1. The correct command to run ${tool} with proper output format
-2. Recommended metricsFormat (junit, sarif, or artifact)
-3. Suggested metricsPath location
+2. Recommended outputType (junit, sarif, or artifact)
+3. Suggested outputPath location
 4. Any tool-specific flags needed for the format
 5. Complete task configuration example
 

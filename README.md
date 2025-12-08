@@ -18,15 +18,15 @@ This MCP server provides AI assistants with the ability to:
 - 📝 **Create complete configs** from scratch
 - 🔄 **Generate CI/CD configs** (GitHub Actions, GitLab CI)
 
-## Prerequisites
+## Requirements
 
 - **Node.js** 18 or higher
-- **devpipe** v0.1.0 or higher installed and accessible in PATH
+- devpipe v0.2.0 or later installed and accessible in PATH
   ```bash
   brew install drewkhoury/tap/devpipe
   ```
   
-  **Note:** This MCP is optimized for devpipe v0.1.0+ which includes the `--ignore-watch-paths` flag and other improvements.
+  **Note:** This MCP requires devpipe v0.2.0+ which uses outputType/outputPath fields (renamed from metricsFormat/metricsPath).
 
 ## Installation
 
@@ -507,6 +507,9 @@ The server exposes these resources:
 ## MCP Prompts
 
 Pre-configured prompts for common workflows:
+
+### `mcp-info`
+Get information about this MCP server version and devpipe compatibility. Shows supported field names, run structure, and upgrade guidance.
 
 ### `analyze-config`
 Analyze the devpipe configuration and suggest improvements.

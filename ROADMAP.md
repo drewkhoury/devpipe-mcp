@@ -118,22 +118,23 @@ Recommendation: Run tasks 1-5 first (3.5m, 92% coverage)
 
 **Effort:** Medium (3-4 hours)
 
-## v0.4.0 - Devpipe Evolution Support
+## v0.4.0 - Future Enhancements
 
-### When devpipe renames fields
+### devpipe v0.2.0 Compatibility ✅ DONE (v0.2.2)
 
-**Planned changes:**
-- `metricsFormat` → `outputType`
-- `metricsPath` → `outputPath`
-- `artifacts/` → `outputs/`
+**Completed changes:**
+- ✅ `metricsFormat` → `outputType`
+- ✅ `metricsPath` → `outputPath`
+- ✅ `artifacts/` → `outputs/` (run folder structure)
+- ✅ `repoRoot` → `projectRoot`
 
-**MCP updates needed:**
-1. Update `configure-metrics` prompt
-2. Update type definitions
-3. Add backward compatibility layer
-4. Update all documentation
+**MCP updates completed:**
+1. ✅ Updated `configure-metrics` prompt
+2. ✅ Updated type definitions (DevpipeTask)
+3. ✅ Updated all documentation
+4. ✅ Minimum version now v0.2.0
 
-**Effort:** Low (1-2 hours)
+**Effort:** Low (1-2 hours) - COMPLETED
 
 ## Future Considerations
 
